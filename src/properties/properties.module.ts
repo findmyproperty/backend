@@ -5,9 +5,9 @@ import { PropertiesController } from './properties.controller';
 import { Property } from './entities/property.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Property])],
-  controllers: [PropertiesController],
-  providers: [PropertiesService],
-  exports: [PropertiesService],
+    imports: [TypeOrmModule.forFeature([Property])],
+    controllers: [PropertiesController],
+    providers: [PropertiesService],
+    exports: [PropertiesService],
 })
-export class PropertiesModule {}
+export class PropertiesModule { }

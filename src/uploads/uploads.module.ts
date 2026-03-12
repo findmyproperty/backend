@@ -4,8 +4,8 @@ import { UploadsController } from './uploads.controller';
 import { AppwriteProvider } from './appwrite.provider';
 
 @Module({
-  controllers: [UploadsController],
-  providers: [UploadsService, AppwriteProvider],
-  exports: [UploadsService, AppwriteProvider],
+    controllers: [UploadsController],
+    providers: [UploadsService, AppwriteProvider],
+    exports: [UploadsService, AppwriteProvider],
 })
-export class UploadsModule {}
+export class UploadsModule { }
