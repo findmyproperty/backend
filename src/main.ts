@@ -1,21 +1,11 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { configureNestApp } from './app-config';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.enableCors({
-    origin: 'https://real-estate-self-nu.vercel.app/',
-    credentials: true,
-  });
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
-  const port = process.env.PORT || 10000;
+  configureNestApp(app);
+  const port = process.env.PORT || 3005;
   await app.listen(port, '0.0.0.0');
 }
-bootstrap();
+void bootstrap();
