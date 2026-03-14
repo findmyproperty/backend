@@ -9,8 +9,10 @@ import { UploadsModule } from './uploads/uploads.module';
 import { AuthModule } from './auth/auth.module';
 import * as fs from 'fs';
 import * as path from 'path';
+import { CheckApiController } from './check-api.controller';
 
 @Module({
+  controllers: [CheckApiController],
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
