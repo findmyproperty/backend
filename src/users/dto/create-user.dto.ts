@@ -1,4 +1,10 @@
-import { IsEmail, IsOptional, IsString, IsBoolean } from 'class-validator';
+import {
+  IsBoolean,
+  IsEmail,
+  IsNumber,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 export class CreateUserDto {
   @IsString()
@@ -28,6 +34,45 @@ export class CreateUserDto {
   @IsBoolean()
   @IsOptional()
   isPhoneVerified?: boolean;
+
+  @IsString()
+  @IsOptional()
+  pendingEmail?: string | null;
+
+  @IsString()
+  @IsOptional()
+  emailOtpHash?: string | null;
+
+  @IsOptional()
+  emailOtpExpiresAt?: Date | null;
+
+  @IsString()
+  @IsOptional()
+  locationAddress?: string | null;
+
+  @IsString()
+  @IsOptional()
+  locationCity?: string | null;
+
+  @IsString()
+  @IsOptional()
+  locationState?: string | null;
+
+  @IsString()
+  @IsOptional()
+  locationCountry?: string | null;
+
+  @IsNumber()
+  @IsOptional()
+  latitude?: number | null;
+
+  @IsNumber()
+  @IsOptional()
+  longitude?: number | null;
+
+  @IsBoolean()
+  @IsOptional()
+  onboardingCompleted?: boolean;
 
   @IsString()
   @IsOptional()
