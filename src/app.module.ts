@@ -16,14 +16,17 @@ import { CheckApiController } from './check-api.controller';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      envFilePath: ['.env', '.env.local'],
     }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
+        const useSsl = configService.get<string>('DB_SSL') === 'true';
         const caPath = path.resolve(process.cwd(), 'ca.pem');
-        const ca = fs.existsSync(caPath) ? fs.readFileSync(caPath).toString() : undefined;
+        const ca = fs.existsSync(caPath)
+          ? fs.readFileSync(caPath).toString()
+          : undefined;
 
         return {
           type: 'postgres',
@@ -34,9 +37,13 @@ import { CheckApiController } from './check-api.controller';
           database: configService.get<string>('DB_DATABASE'),
           entities: [User, Property],
           synchronize: true, // Only for development!
-          ssl: ca
-            ? { ca, rejectUnauthorized: true }
-            : { rejectUnauthorized: false },
+          ...(useSsl
+            ? {
+                ssl: ca
+                  ? { ca, rejectUnauthorized: true }
+                  : { rejectUnauthorized: false },
+              }
+            : { ssl: false }),
         };
       },
     }),
@@ -46,4 +53,4 @@ import { CheckApiController } from './check-api.controller';
     AuthModule,
   ],
 })
-export class AppModule { }
+export class AppModule {}

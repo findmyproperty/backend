@@ -1,28 +1,45 @@
 import type { INestApplication } from '@nestjs/common';
 import { ValidationPipe } from '@nestjs/common';
 
+const LOCAL_DEV_ORIGINS = [
+  'http://localhost:5173',
+  'http://localhost:8080',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000',
+];
+
 function getAllowedOrigins(): string[] {
   const configured = process.env.CORS_ORIGINS ?? process.env.FRONTEND_URL ?? '';
-  const fallback = 'https://real-estate-self-nu.vercel.app,http://localhost:5173';
+  const fallback =
+    'https://real-estate-self-nu.vercel.app,http://localhost:5173';
 
-  return (configured || fallback)
+  const fromEnv = (configured || fallback)
     .split(',')
     .map((origin) => origin.trim().replace(/\/+$/, ''))
     .filter(Boolean);
+
+  return [...new Set([...fromEnv, ...LOCAL_DEV_ORIGINS])];
 }
 
 export function configureNestApp(app: INestApplication) {
   const allowedOrigins = getAllowedOrigins();
 
   app.enableCors({
-    origin: (requestOrigin, callback) => {
+    origin: (
+      requestOrigin: string,
+      callback: (err: Error | null, isAllowed: boolean) => void,
+    ) => {
       if (!requestOrigin) {
         callback(null, true);
         return;
       }
 
       const normalizedOrigin = requestOrigin.replace(/\/+$/, '');
-      callback(null, allowedOrigins.includes(normalizedOrigin));
+      const isAllowed =
+        allowedOrigins.includes(normalizedOrigin) ||
+        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(normalizedOrigin);
+      callback(null, isAllowed);
     },
     credentials: true,
   });
