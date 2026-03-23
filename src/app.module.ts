@@ -7,8 +7,6 @@ import { PropertiesModule } from './properties/properties.module';
 import { Property } from './properties/entities/property.entity';
 import { UploadsModule } from './uploads/uploads.module';
 import { AuthModule } from './auth/auth.module';
-import * as fs from 'fs';
-import * as path from 'path';
 import { CheckApiController } from './check-api.controller';
 
 @Module({
@@ -22,14 +20,8 @@ import { CheckApiController } from './check-api.controller';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
-        const useSsl = configService.get<string>('DB_SSL') === 'true';
-        const caPath = path.resolve(process.cwd(), 'ca.pem');
-        const ca = fs.existsSync(caPath)
-          ? fs.readFileSync(caPath).toString()
-          : undefined;
-
         return {
-          type: 'postgres',
+          type: 'mysql',
           host: configService.get<string>('DB_HOST'),
           port: configService.get<number>('DB_PORT'),
           username: configService.get<string>('DB_USERNAME'),
@@ -37,13 +29,6 @@ import { CheckApiController } from './check-api.controller';
           database: configService.get<string>('DB_DATABASE'),
           entities: [User, Property],
           synchronize: true, // Only for development!
-          ...(useSsl
-            ? {
-                ssl: ca
-                  ? { ca, rejectUnauthorized: true }
-                  : { rejectUnauthorized: false },
-              }
-            : { ssl: false }),
         };
       },
     }),
@@ -53,4 +38,4 @@ import { CheckApiController } from './check-api.controller';
     AuthModule,
   ],
 })
-export class AppModule {}
+export class AppModule { }

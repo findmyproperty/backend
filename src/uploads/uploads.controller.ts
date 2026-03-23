@@ -1,43 +1,29 @@
 import {
     Controller,
     Post,
-    UploadedFile,
-    UploadedFiles,
     UseInterceptors,
-    BadRequestException,
+    UploadedFile,
 } from '@nestjs/common';
-import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
-import { UploadsService } from './uploads.service';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
 
-@Controller('uploads')
-export class UploadsController {
-    constructor(private readonly uploadsService: UploadsService) { }
-
-    @Post('image')
-    @UseInterceptors(FileInterceptor('file'))
-    async uploadImage(@UploadedFile() file: Express.Multer.File) {
-        try {
-            const result = await this.uploadsService.uploadFile(file);
-            return {
-                url: this.uploadsService.getFileView(result.$id),
-                fileId: result.$id,
-            };
-        } catch (error) {
-            throw new BadRequestException('Upload failed: ' + error.message);
-        }
-    }
-
-    @Post('images')
-    @UseInterceptors(FilesInterceptor('files'))
-    async uploadImages(@UploadedFiles() files: Express.Multer.File[]) {
-        try {
-            const results = await this.uploadsService.uploadMultiple(files);
-            return results.map((result) => ({
-                url: this.uploadsService.getFileView(result.$id),
-                fileId: result.$id,
-            }));
-        } catch (error) {
-            throw new BadRequestException('Multiple upload failed: ' + error.message);
-        }
+@Controller('upload')
+export class UploadController {
+    @Post()
+    @UseInterceptors(
+        FileInterceptor('file', {
+            storage: diskStorage({
+                destination: '/var/www/uploads',
+                filename: (req, file, cb) => {
+                    const uniqueName = Date.now() + '-' + file.originalname;
+                    cb(null, uniqueName);
+                },
+            }),
+        }),
+    )
+    uploadFile(@UploadedFile() file: Express.Multer.File) {
+        return {
+            url: `http://187.127.133.141/uploads/${file.filename}`,
+        };
     }
 }
