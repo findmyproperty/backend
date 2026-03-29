@@ -1,0 +1,35 @@
+﻿
+E:\development\aks\backend\src\auth\auth.controller.ts
+  40:35  warning  Unsafe argument of type `any` assigned to a parameter of type `number`  @typescript-eslint/no-unsafe-argument
+  40:39  error    Unsafe member access .user on an `any` value                            @typescript-eslint/no-unsafe-member-access
+  46:38  warning  Unsafe argument of type `any` assigned to a parameter of type `number`  @typescript-eslint/no-unsafe-argument
+  46:42  error    Unsafe member access .user on an `any` value                            @typescript-eslint/no-unsafe-member-access
+  52:38  warning  Unsafe argument of type `any` assigned to a parameter of type `number`  @typescript-eslint/no-unsafe-argument
+  52:42  error    Unsafe member access .user on an `any` value                            @typescript-eslint/no-unsafe-member-access
+
+E:\development\aks\backend\src\auth\auth.module.ts
+  16:7  error  Async method 'useFactory' has no 'await' expression  @typescript-eslint/require-await
+
+E:\development\aks\backend\src\auth\auth.service.ts
+  356:13  error    Unsafe assignment of an `any` value                                                                                                                                                               @typescript-eslint/no-unsafe-assignment
+  357:19  error    Unsafe member access .type on an `any` value                                                                                                                                                      @typescript-eslint/no-unsafe-member-access
+  361:52  warning  Unsafe argument of type `any` assigned to a parameter of type `number`                                                                                                                            @typescript-eslint/no-unsafe-argument
+  361:60  error    Unsafe member access .sub on an `any` value                                                                                                                                                       @typescript-eslint/no-unsafe-member-access
+  503:5   warning  Unused eslint-disable directive (no problems were reported from '@typescript-eslint/no-unsafe-assignment', '@typescript-eslint/no-unsafe-call', or '@typescript-eslint/no-unsafe-member-access')
+
+E:\development\aks\backend\src\auth\strategies\jwt.strategy.ts
+  16:3   error  Async method 'validate' has no 'await' expression            @typescript-eslint/require-await
+  18:7   error  Unsafe assignment of an `any` value                          @typescript-eslint/no-unsafe-assignment
+  18:23  error  Unsafe member access .sub on an `any` value                  @typescript-eslint/no-unsafe-member-access
+  19:7   error  Unsafe assignment of an `any` value                          @typescript-eslint/no-unsafe-assignment
+  19:22  error  Unsafe member access .email on an `any` value                @typescript-eslint/no-unsafe-member-access
+  20:7   error  Unsafe assignment of an `any` value                          @typescript-eslint/no-unsafe-assignment
+  20:22  error  Unsafe member access .phone on an `any` value                @typescript-eslint/no-unsafe-member-access
+  21:7   error  Unsafe assignment of an `any` value                          @typescript-eslint/no-unsafe-assignment
+  21:21  error  Unsafe member access .role on an `any` value                 @typescript-eslint/no-unsafe-member-access
+  22:7   error  Unsafe assignment of an `any` value                          @typescript-eslint/no-unsafe-assignment
+  22:36  error  Unsafe member access .onboardingCompleted on an `any` value  @typescript-eslint/no-unsafe-member-access
+
+Γ£û 23 problems (18 errors, 5 warnings)
+  0 errors and 1 warning potentially fixable with the `--fix` option.
+

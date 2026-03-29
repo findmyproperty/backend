@@ -1,0 +1,8 @@
+﻿
+E:\development\aks\backend\src\system-logs\system-logs.service.ts
+  29:7  error  Unsafe assignment of an `any` value  @typescript-eslint/no-unsafe-assignment
+  38:7  error  Unsafe assignment of an `any` value  @typescript-eslint/no-unsafe-assignment
+  47:7  error  Unsafe assignment of an `any` value  @typescript-eslint/no-unsafe-assignment
+
+Γ£û 3 problems (3 errors, 0 warnings)
+
