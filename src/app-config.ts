@@ -10,7 +10,7 @@ const LOCAL_DEV_ORIGINS = [
 ];
 
 function getAllowedOrigins(): string[] {
-  const configured = process.env.CORS_ORIGINS ?? process.env.FRONTEND_URL ?? '';
+  const configured = process.env.CLIENT_URL;
   const fallback =
     'https://real-estate-self-nu.vercel.app,http://localhost:5173';
 
