@@ -1,8 +1,0 @@
-﻿
-E:\development\aks\backend\src\auth\auth.service.ts
-  362:23  error    This assertion is unnecessary since it does not change the type of the expression                                                                  @typescript-eslint/no-unnecessary-type-assertion
-  509:5   warning  Unused eslint-disable directive (no problems were reported from '@typescript-eslint/no-unsafe-assignment' or '@typescript-eslint/no-unsafe-call')
-
-Γ£û 2 problems (1 error, 1 warning)
-  1 error and 1 warning potentially fixable with the `--fix` option.
-
