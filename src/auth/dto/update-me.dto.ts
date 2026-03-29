@@ -32,4 +32,8 @@ export class UpdateMeDto {
   @IsNumber()
   @IsOptional()
   longitude?: number;
+
+  @IsString()
+  @IsOptional()
+  role?: string;
 }

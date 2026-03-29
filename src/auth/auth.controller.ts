@@ -5,6 +5,7 @@ import {
   Get,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -14,9 +15,23 @@ import { UpdateMeDto } from './dto/update-me.dto';
 import { RequestPhoneOtpDto } from './dto/request-phone-otp.dto';
 import { VerifyPhoneOtpDto } from './dto/verify-phone-otp.dto';
 
+import { Request } from 'express';
+
+interface RequestWithUser extends Request {
+  user?: {
+    userId: number;
+    role: string;
+  };
+}
+
 @Controller('auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
+
+  @Get('verify')
+  async verifyAccount(@Query('token') token: string) {
+    return this.authService.verifyAccount(token);
+  }
 
   @Post('phone-otp/request')
   async requestPhoneOtp(@Body() body: RequestPhoneOtpDto) {
@@ -30,19 +45,19 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Get('me')
-  async me(@Req() req: any) {
-    return this.authService.getMe(req.user.userId);
+  async me(@Req() req: RequestWithUser) {
+    return this.authService.getMe(req.user!.userId);
   }
 
   @UseGuards(JwtAuthGuard)
   @Patch('me')
-  async updateMe(@Req() req: any, @Body() body: UpdateMeDto) {
-    return this.authService.updateMe(req.user.userId, body);
+  async updateMe(@Req() req: RequestWithUser, @Body() body: UpdateMeDto) {
+    return this.authService.updateMe(req.user!.userId, body);
   }
 
   @UseGuards(JwtAuthGuard)
   @Delete('me')
-  async deleteMe(@Req() req: any) {
-    return this.authService.deleteMe(req.user.userId);
+  async deleteMe(@Req() req: RequestWithUser) {
+    return this.authService.deleteMe(req.user!.userId);
   }
 }

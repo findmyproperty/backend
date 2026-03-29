@@ -1,74 +1,130 @@
 import {
-    IsString,
-    IsNumber,
-    IsEnum,
-    IsArray,
-    IsOptional,
-    Min,
-    IsUrl,
+  IsString,
+  IsNumber,
+  IsEnum,
+  IsArray,
+  IsOptional,
+  Min,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export enum ListingType {
-    RENT = 'Rent',
-    SALE = 'Sale',
-    LEASE = 'Lease',
+  RENT = 'Rent',
+  SALE = 'Sale',
+  LEASE = 'Lease',
 }
 
 export enum PropertyType {
-    HOUSE = 'House',
-    APARTMENT = 'Apartment',
-    VILLA = 'Villa',
-    TOWNHOME = 'Townhome',
+  HOUSE = 'House',
+  APARTMENT = 'Apartment',
+  VILLA = 'Villa',
+  TOWNHOME = 'Townhome',
+}
+
+export enum PropertyStatus {
+  PENDING = 'Pending',
+  APPROVED = 'Approved',
+  REJECTED = 'Rejected',
+}
+
+export class FloorPlanDto {
+  @IsString()
+  id: string;
+
+  @IsString()
+  floorName: string;
+
+  @IsOptional()
+  @IsString()
+  customName?: string;
+
+  @IsString()
+  imageUrl: string;
 }
 
 export class CreatePropertyDto {
-    @IsString()
-    title: string;
+  @IsString()
+  title: string;
 
-    @IsString()
-    description: string;
+  @IsOptional()
+  @IsString()
+  description?: string;
 
-    @IsNumber()
-    @Min(0)
-    price: number;
+  @IsNumber()
+  @Min(0)
+  price: number;
 
-    @IsString()
-    currency: string;
+  @IsString()
+  currency: string; // Keeping currency since backend had it previously
 
-    @IsEnum(ListingType)
-    listingType: ListingType;
+  @IsEnum(ListingType)
+  listingType: ListingType;
 
-    @IsEnum(PropertyType)
-    propertyType: PropertyType;
+  @IsEnum(PropertyType)
+  propertyType: PropertyType;
 
-    @IsString()
-    address: string;
+  @IsString()
+  address: string;
 
-    @IsString()
-    city: string;
+  @IsString()
+  locality: string;
 
-    @IsNumber()
-    @Min(0)
-    rooms: number; // or bedrooms
+  @IsString()
+  city: string;
 
-    @IsNumber()
-    @Min(0)
-    bathrooms: number;
+  @IsOptional()
+  @IsString()
+  state?: string;
 
-    @IsNumber()
-    @Min(0)
-    areaSquareMeters: number;
+  @IsString()
+  country: string;
 
-    @IsNumber()
-    @Min(1800)
-    yearBuilt: number;
+  @IsNumber()
+  @Min(0)
+  bedrooms: number;
 
-    @IsArray()
-    @IsString({ each: true })
-    amenities: string[];
+  @IsNumber()
+  @Min(0)
+  bathrooms: number;
 
-    @IsOptional()
-    @IsArray()
-    @IsUrl({}, { each: true })
-    imageUrls?: string[];
+  @IsNumber()
+  @Min(0)
+  area: number;
+
+  @IsNumber()
+  @Min(1900)
+  yearBuilt: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  amenities?: string[];
+
+  @IsOptional()
+  @IsString()
+  videoUrl?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  propertyImages?: string[];
+
+  @IsOptional()
+  @IsString()
+  thumbnailUrl?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => FloorPlanDto)
+  floorPlans?: FloorPlanDto[];
+
+  @IsOptional()
+  @IsEnum(PropertyStatus)
+  status?: PropertyStatus;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
 }

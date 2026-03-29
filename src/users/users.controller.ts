@@ -8,6 +8,7 @@ import {
   Delete,
   UseGuards,
   ParseIntPipe,
+  Req,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -33,6 +34,15 @@ export class UsersController {
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.usersService.findOne(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('favorites/:propertyId')
+  toggleFavorite(
+    @Param('propertyId', ParseIntPipe) propertyId: number,
+    @Req() req: any,
+  ) {
+    return this.usersService.toggleFavorite(req.user.userId, propertyId);
   }
 
   @UseGuards(JwtAuthGuard)

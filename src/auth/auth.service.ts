@@ -27,6 +27,12 @@ interface MailTransporter {
   ): Promise<nodemailer.SentMessageInfo>;
 }
 
+interface VerificationJwtPayload {
+  sub: number;
+  email: string;
+  type: string;
+}
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -346,6 +352,83 @@ export class AuthService {
     };
   }
 
+  generateVerificationToken(userId: number, email: string): string {
+    const payload = { sub: userId, email, type: 'verification' };
+    return this.jwtService.sign(payload, { expiresIn: '24h' });
+  }
+
+  async verifyAccount(token: string) {
+    try {
+      const payload = this.jwtService.verify<VerificationJwtPayload>(token);
+      if (payload.type !== 'verification') {
+        throw new BadRequestException('Invalid token type');
+      }
+
+      const user = await this.usersService.findOne(payload.sub);
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      await this.usersService.update(user.id, {
+        isEmailVerified: true,
+      });
+
+      return { message: 'Account verified successfully' };
+    } catch (error) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+  }
+
+  async sendAgentVerificationEmail(
+    email: string,
+    name: string | null,
+    token: string,
+  ) {
+    const from = this.configService.get<string>('SMTP_FROM');
+    const frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+    const verificationLink = `${frontendUrl}/verify?token=${token}`;
+
+    if (!from) {
+      throw new BadRequestException('SMTP_FROM is not configured.');
+    }
+
+    const transporter = this.getMailTransporter();
+    try {
+      await transporter.sendMail({
+        from,
+        to: email,
+        subject: 'Welcome to Find My Property - Verify Your Account',
+        text: `Hello ${name || 'Agent'},\n\nWelcome to Find My Property! Please verify your account by clicking the following link: ${verificationLink}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <h2>Welcome to Find My Property!</h2>
+            <p>Hello ${name || 'Agent'},</p>
+            <p>Your agent account has been created. Please click the button below to verify your email address and activate your account:</p>
+            <a href="${verificationLink}" style="display:inline-block;padding:10px 20px;background-color:#007bff;color:white;text-decoration:none;border-radius:5px;font-weight:bold;">Verify Account</a>
+            <p style="margin-top: 20px;">If the button above doesn't work, you can also copy and paste the following link into your browser:</p>
+            <p>${verificationLink}</p>
+            <p>This link will expire in 24 hours.</p>
+          </div>
+        `,
+      });
+    } catch (e) {
+      this.logger.error(
+        `Failed to send agent verification email to ${email}`,
+        e,
+      );
+      throw new InternalServerErrorException(
+        'Failed to send verification email.',
+      );
+    }
+  }
+
   private toPublicUser(user: User) {
     return {
       id: user.id,
@@ -423,7 +506,6 @@ export class AuthService {
       );
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access -- nodemailer typings are incomplete; we cast to MailTransporter
     const transport = nodemailer.createTransport({
       host,
       port,

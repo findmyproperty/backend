@@ -8,6 +8,14 @@ import { Property } from './properties/entities/property.entity';
 import { UploadsModule } from './uploads/uploads.module';
 import { AuthModule } from './auth/auth.module';
 import { CheckApiController } from './check-api.controller';
+import { SystemLogsModule } from './system-logs/system-logs.module';
+import { SystemLog } from './system-logs/entities/system-log.entity';
+import { SettingsModule } from './settings/settings.module';
+import { Setting } from './settings/entities/setting.entity';
+import { AgentsModule } from './agents/agents.module';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
 @Module({
   controllers: [CheckApiController],
@@ -15,6 +23,7 @@ import { CheckApiController } from './check-api.controller';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env', '.env.local'],
+      expandVariables: true,
     }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
@@ -27,7 +36,7 @@ import { CheckApiController } from './check-api.controller';
           username: configService.get<string>('DB_USERNAME'),
           password: configService.get<string>('DB_PASSWORD'),
           database: configService.get<string>('DB_DATABASE'),
-          entities: [User, Property],
+          entities: [User, Property, SystemLog, Setting],
           synchronize: true, // Only for development!
         };
       },
@@ -36,6 +45,19 @@ import { CheckApiController } from './check-api.controller';
     PropertiesModule,
     UploadsModule,
     AuthModule,
+    SystemLogsModule,
+    SettingsModule,
+    AgentsModule,
+  ],
+  providers: [
+    {
+      provide: APP_FILTER,
+      useClass: AllExceptionsFilter,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: LoggingInterceptor,
+    },
   ],
 })
-export class AppModule { }
+export class AppModule {}

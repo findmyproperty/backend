@@ -65,6 +65,9 @@ export class User {
   @Column({ type: 'varchar', default: 'tenant' })
   role: string;
 
+  @Column('simple-array', { nullable: true })
+  favorites: number[];
+
   @CreateDateColumn()
   createdAt: Date;
 

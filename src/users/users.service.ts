@@ -54,6 +54,10 @@ export class UsersService {
     return await this.usersRepository.find();
   }
 
+  async findByRole(role: string): Promise<User[]> {
+    return await this.usersRepository.find({ where: { role } });
+  }
+
   async findOne(id: number): Promise<User> {
     const user = await this.usersRepository.findOneBy({ id });
     if (!user) {
@@ -158,6 +162,22 @@ export class UsersService {
         : {}),
     });
 
+    const savedUser = await this.usersRepository.save(user);
+    return this.stripPassword(savedUser);
+  }
+
+  async toggleFavorite(userId: number, propertyId: number): Promise<User> {
+    const user = await this.findOne(userId);
+    const favs = (user.favorites || []).map(Number);
+
+    const index = favs.indexOf(propertyId);
+    if (index > -1) {
+      favs.splice(index, 1);
+    } else {
+      favs.push(propertyId);
+    }
+
+    user.favorites = favs;
     const savedUser = await this.usersRepository.save(user);
     return this.stripPassword(savedUser);
   }
