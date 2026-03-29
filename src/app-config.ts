@@ -19,6 +19,10 @@ function getAllowedOrigins(): string[] {
     .map((origin) => origin.trim().replace(/\/+$/, ''))
     .filter(Boolean);
 
+  console.log('Allowed origins:', [
+    ...new Set([...fromEnv, ...LOCAL_DEV_ORIGINS]),
+  ]);
+
   return [...new Set([...fromEnv, ...LOCAL_DEV_ORIGINS])];
 }
 
