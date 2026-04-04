@@ -6,6 +6,12 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+export enum UserRole {
+  ADMIN = 'admin',
+  AGENT = 'agent',
+  TENANT = 'tenant',
+}
+
 @Entity()
 export class User {
   @PrimaryGeneratedColumn()
@@ -62,8 +68,8 @@ export class User {
   @Column({ default: false })
   onboardingCompleted: boolean;
 
-  @Column({ type: 'varchar', default: 'tenant' })
-  role: string;
+  @Column({ type: 'enum', enum: UserRole, default: UserRole.TENANT })
+  role: UserRole;
 
   @Column('simple-array', { nullable: true })
   favorites: number[];

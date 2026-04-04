@@ -89,4 +89,8 @@ export class Property {
 
   @Column({ nullable: true })
   createdBy: number;
+
+  /** Listing agent who receives tenant leads; falls back to createdBy when unset (legacy rows). */
+  @Column({ type: 'int', nullable: true })
+  assignedAgentId: number | null;
 }

@@ -18,6 +18,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateUserDto } from '../users/dto/create-user.dto';
 import { UpdateUserDto } from '../users/dto/update-user.dto';
 import { Request } from 'express';
+import { UserRole } from 'src/users/entities/user.entity';
 
 interface RequestWithUser extends Request {
   user?: {
@@ -47,16 +48,31 @@ export class AgentsController {
       throw new ConflictException('Email is required for agents');
     }
 
+    if (!createUserDto.phone) {
+      throw new ConflictException('Phone is required for agents');
+    }
+
     const existingUser = await this.usersService.findByEmail(
       createUserDto.email,
     );
+
+    const existingUserByPhone = await this.usersService.findByPhone(
+      createUserDto.phone,
+    );
+
+    if (existingUserByPhone) {
+      throw new ConflictException('Phone number already exists');
+    }
+
     if (existingUser) {
       throw new ConflictException('Email already exists');
     }
 
     // Force role to agent
-    createUserDto.role = 'agent';
+    createUserDto.role = UserRole.AGENT;
     createUserDto.isEmailVerified = false;
+    createUserDto.isPhoneVerified = false;
+    createUserDto.onboardingCompleted = false;
 
     const user = await this.usersService.create(createUserDto);
 
@@ -82,7 +98,7 @@ export class AgentsController {
     if (req.user?.role !== 'admin') {
       throw new ForbiddenException('Only admins can list agents');
     }
-    return this.usersService.findByRole('agent');
+    return this.usersService.findByRole(UserRole.AGENT);
   }
 
   @Get(':id')
@@ -94,7 +110,7 @@ export class AgentsController {
       throw new ForbiddenException('Only admins can view agent details');
     }
     const user = await this.usersService.findOne(id);
-    if (user.role !== 'agent') {
+    if (user.role !== UserRole.AGENT) {
       throw new ConflictException('User is not an agent');
     }
     return user;

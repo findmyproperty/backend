@@ -14,6 +14,8 @@ import {
 import { PropertiesService } from './properties.service';
 import { CreatePropertyDto, PropertyStatus } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
+import { ApprovePropertyDto } from './dto/approve-property.dto';
+import { RejectPropertyDto } from './dto/reject-property.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Request } from 'express';
 
@@ -42,7 +44,11 @@ export class PropertiesController {
       createPropertyDto.status = PropertyStatus.APPROVED;
     }
 
-    return this.propertiesService.create(createPropertyDto, userId);
+    return this.propertiesService.create(
+      createPropertyDto,
+      userId,
+      req.user?.role,
+    );
   }
 
   @UseGuards(JwtAuthGuard)
@@ -67,11 +73,28 @@ export class PropertiesController {
 
   @UseGuards(JwtAuthGuard)
   @Patch(':id/approve')
-  approve(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
+  approve(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: RequestWithUser,
+    @Body() body: ApprovePropertyDto,
+  ) {
     if (req.user?.role !== 'admin') {
       throw new ForbiddenException('Only admins can approve properties');
     }
-    return this.propertiesService.approve(id);
+    return this.propertiesService.approve(id, body);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/reject')
+  reject(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: RequestWithUser,
+    @Body() body: RejectPropertyDto,
+  ) {
+    if (req.user?.role !== 'admin') {
+      throw new ForbiddenException('Only admins can reject properties');
+    }
+    return this.propertiesService.reject(id, body);
   }
 
   @Patch(':id')

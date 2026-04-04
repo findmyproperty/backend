@@ -1,10 +1,12 @@
 import {
   IsBoolean,
   IsEmail,
+  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
 } from 'class-validator';
+import { UserRole } from '../entities/user.entity';
 
 export class CreateUserDto {
   @IsString()
@@ -74,7 +76,7 @@ export class CreateUserDto {
   @IsOptional()
   onboardingCompleted?: boolean;
 
-  @IsString()
+  @IsEnum(UserRole)
   @IsOptional()
-  role?: string;
+  role?: UserRole = UserRole.TENANT;
 }

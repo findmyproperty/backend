@@ -7,7 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { User } from './entities/user.entity';
+import { User, UserRole } from './entities/user.entity';
 import * as bcrypt from 'bcrypt';
 
 const PASSWORD_SALT_ROUNDS = 10;
@@ -54,7 +54,11 @@ export class UsersService {
     return await this.usersRepository.find();
   }
 
-  async findByRole(role: string): Promise<User[]> {
+  async findAllAdmins(): Promise<User[]> {
+    return await this.usersRepository.find({ where: { role: UserRole.ADMIN } });
+  }
+
+  async findByRole(role: UserRole): Promise<User[]> {
     return await this.usersRepository.find({ where: { role } });
   }
 

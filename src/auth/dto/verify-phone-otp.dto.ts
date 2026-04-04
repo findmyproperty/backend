@@ -1,4 +1,5 @@
-import { IsOptional, IsString, Length } from 'class-validator';
+import { IsEnum, IsOptional, IsString, Length } from 'class-validator';
+import { UserRole } from 'src/users/entities/user.entity';
 
 export class VerifyPhoneOtpDto {
   @IsString()
@@ -12,7 +13,7 @@ export class VerifyPhoneOtpDto {
   @IsOptional()
   name?: string;
 
-  @IsString()
+  @IsEnum(UserRole)
   @IsOptional()
-  role?: string;
+  role?: UserRole = UserRole.TENANT;
 }

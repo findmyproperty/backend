@@ -13,7 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { createHash, randomInt } from 'crypto';
 import nodemailer from 'nodemailer';
 import { UpdateMeDto } from './dto/update-me.dto';
-import { User } from '../users/entities/user.entity';
+import { User, UserRole } from '../users/entities/user.entity';
 import { VerifyPhoneOtpDto } from './dto/verify-phone-otp.dto';
 import twilio, { type Twilio } from 'twilio';
 
@@ -73,7 +73,7 @@ export class AuthService {
           to: normalizedPhone,
           channel: 'sms',
         });
-
+      
       return {
         message: 'OTP sent successfully',
         status: verification.status,
@@ -90,7 +90,19 @@ export class AuthService {
       );
 
       const isProd =
-        this.configService.get<string>('NODE_ENV') === 'production';
+      this.configService.get<string>('NODE_ENV') === 'production';
+      if (!isProd) {
+        this.logger.warn(
+          'Fallback OTP sent. Check phone number and Twilio configuration.',
+        );
+        return {
+          message: 'Fallback OTP sent. Check phone number and Twilio configuration.',
+          status: 'warning',
+          code: FALLBACK_OTP_CODE,
+        };
+      }
+
+
       throw new BadRequestException({
         message:
           'Failed to send OTP. Check phone number and Twilio configuration.',
@@ -180,7 +192,7 @@ export class AuthService {
       user = await this.usersService.create({
         name: body.name?.trim() || `User ${normalizedPhone.slice(-4)}`,
         phone: normalizedPhone,
-        role: this.normalizeRole(body.role),
+        role: body.role || UserRole.TENANT,
         isPhoneVerified: true,
         onboardingCompleted: false,
       });
@@ -390,17 +402,18 @@ export class AuthService {
     name: string | null,
     token: string,
   ) {
+    try {
     const from = this.configService.get<string>('SMTP_FROM');
     const frontendUrl =
       this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
-    const verificationLink = `${frontendUrl}/verify?token=${token}`;
+    const verificationLink = `${frontendUrl}/verify-agent?token=${token}`;
 
     if (!from) {
       throw new BadRequestException('SMTP_FROM is not configured.');
     }
 
     const transporter = this.getMailTransporter();
-    try {
+
       await transporter.sendMail({
         from,
         to: email,
@@ -424,8 +437,8 @@ export class AuthService {
         e,
       );
       throw new InternalServerErrorException(
-        'Failed to send verification email.',
-      );
+          'Failed to send verification email.',
+        );
     }
   }
 
@@ -512,7 +525,7 @@ export class AuthService {
       secure: port === 465,
       auth: { user, pass },
     });
-    this.mailTransporter = transport as MailTransporter;
+    this.mailTransporter = transport;
 
     return this.mailTransporter;
   }
