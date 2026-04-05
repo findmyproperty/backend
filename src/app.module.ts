@@ -14,6 +14,7 @@ import { SettingsModule } from './settings/settings.module';
 import { Setting } from './settings/entities/setting.entity';
 import { AgentsModule } from './agents/agents.module';
 import { LeadsModule } from './leads/leads.module';
+import { AdminModule } from './admin/admin.module';
 import { PropertyLead } from './leads/entities/property-lead.entity';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -51,6 +52,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
     SettingsModule,
     AgentsModule,
     LeadsModule,
+    AdminModule,
   ],
   providers: [
     {

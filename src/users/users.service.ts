@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User, UserRole } from './entities/user.entity';
@@ -68,6 +68,15 @@ export class UsersService {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
     return user;
+  }
+
+  /** Batch load users by primary key (e.g. populate property creators). */
+  async findByIds(ids: number[]): Promise<User[]> {
+    const unique = [...new Set(ids.filter((id) => id != null))] as number[];
+    if (unique.length === 0) {
+      return [];
+    }
+    return this.usersRepository.findBy({ id: In(unique) });
   }
 
   async findByEmail(email: string): Promise<User | null> {

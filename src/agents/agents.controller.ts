@@ -14,11 +14,13 @@ import {
 } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { AuthService } from '../auth/auth.service';
+import { PropertiesService } from '../properties/properties.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateUserDto } from '../users/dto/create-user.dto';
 import { UpdateUserDto } from '../users/dto/update-user.dto';
 import { Request } from 'express';
-import { UserRole } from 'src/users/entities/user.entity';
+import { UserRole } from '../users/entities/user.entity';
+import { Property } from '../properties/entities/property.entity';
 
 interface RequestWithUser extends Request {
   user?: {
@@ -33,6 +35,7 @@ export class AgentsController {
   constructor(
     private readonly usersService: UsersService,
     private readonly authService: AuthService,
+    private readonly propertiesService: PropertiesService,
   ) {}
 
   @Post()
@@ -98,7 +101,23 @@ export class AgentsController {
     if (req.user?.role !== 'admin') {
       throw new ForbiddenException('Only admins can list agents');
     }
-    return this.usersService.findByRole(UserRole.AGENT);
+    const agents = await this.usersService.findByRole(UserRole.AGENT);
+    const agentIds = agents.map((a) => a.id);
+    const assignedProperties =
+      await this.propertiesService.findByAssignedAgentIds(agentIds);
+
+    const propertiesByAgentId = new Map<number, Property[]>();
+    for (const p of assignedProperties) {
+      if (p.assignedAgentId == null) continue;
+      const list = propertiesByAgentId.get(p.assignedAgentId) ?? [];
+      list.push(p);
+      propertiesByAgentId.set(p.assignedAgentId, list);
+    }
+
+    return agents.map((agent) => ({
+      ...agent,
+      properties: propertiesByAgentId.get(agent.id) ?? [],
+    }));
   }
 
   @Get(':id')

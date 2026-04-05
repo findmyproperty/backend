@@ -68,7 +68,7 @@ export class PropertiesController {
 
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.propertiesService.findOne(id);
+    return this.propertiesService.findOneWithAgent(id);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -97,12 +97,23 @@ export class PropertiesController {
     return this.propertiesService.reject(id, body);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Patch(':id')
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updatePropertyDto: UpdatePropertyDto,
+    @Req() req: RequestWithUser,
   ) {
-    return this.propertiesService.update(id, updatePropertyDto);
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ForbiddenException('User not authenticated properly');
+    }
+    return this.propertiesService.update(
+      id,
+      updatePropertyDto,
+      userId,
+      req.user?.role ?? '',
+    );
   }
 
   @UseGuards(JwtAuthGuard)

@@ -6,7 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import nodemailer from 'nodemailer';
 import { CreatePropertyDto, PropertyStatus } from './dto/create-property.dto';
@@ -16,6 +16,8 @@ import { RejectPropertyDto } from './dto/reject-property.dto';
 import { Property } from './entities/property.entity';
 import { UsersService } from '../users/users.service';
 import { User, UserRole } from '../users/entities/user.entity';
+import { buildPropertyPath } from '../helper/property-slug';
+import { escapeHtmlForEmail } from '../helper/escape-html';
 
 interface MailTransporter {
   sendMail(
@@ -23,12 +25,13 @@ interface MailTransporter {
   ): Promise<nodemailer.SentMessageInfo>;
 }
 
-function escapeHtmlForEmail(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+/** Public fields for `agent` / `creator` on property API responses. */
+export interface PropertyUserSummary {
+  id: number;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  role: UserRole;
 }
 
 @Injectable()
@@ -44,6 +47,37 @@ export class PropertiesService {
 
   getListingAgentUserId(property: Property): number | null {
     return property.assignedAgentId ?? property.createdBy ?? null;
+  }
+
+  private toPropertyUserSummary(user: User): PropertyUserSummary {
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+    };
+  }
+
+  private async attachCreatorsToProperties(
+    properties: Property[],
+  ): Promise<Array<Property & { creator: PropertyUserSummary | null }>> {
+    const creatorIds = [
+      ...new Set(
+        properties
+          .map((p) => p.createdBy)
+          .filter((id): id is number => id != null),
+      ),
+    ];
+    const users = await this.usersService.findByIds(creatorIds);
+    const byId = new Map(
+      users.map((u) => [u.id, this.toPropertyUserSummary(u)]),
+    );
+    return properties.map((p) => ({
+      ...p,
+      creator:
+        p.createdBy != null ? (byId.get(p.createdBy) ?? null) : null,
+    }));
   }
 
   async create(
@@ -96,6 +130,7 @@ export class PropertiesService {
   async approve(id: number, dto: ApprovePropertyDto = {}): Promise<Property> {
     const property = await this.findOne(id);
     property.status = PropertyStatus.APPROVED;
+    property.approvedAt = new Date();
 
     let assignedAgentForEmail: User | null = null;
 
@@ -142,6 +177,7 @@ export class PropertiesService {
   async reject(id: number, dto: RejectPropertyDto): Promise<Property> {
     const property = await this.findOne(id);
     property.status = PropertyStatus.REJECTED;
+    property.approvedAt = null;
     property.reason = dto.reason.trim();
 
     const saved = await this.propertyRepository.save(property);
@@ -169,7 +205,10 @@ export class PropertiesService {
     return saved;
   }
 
-  private async notifyAdmin(property: Property) {
+  private async notifyAdmin(
+    property: Property,
+    options?: { isResubmission?: boolean },
+  ) {
     const admins = await this.usersService.findAllAdmins();
     const adminEmails = admins.map((admin) => admin.email).filter(Boolean) as string[];
     const from = this.configService.get<string>('SMTP_FROM');
@@ -177,19 +216,33 @@ export class PropertiesService {
     if (!adminEmails.length || !from) return;
 
     const transporter = this.getMailTransporter();
-    const frontendUrl = this.configService.get<string>('FRONTEND_APPROVAL_URL');
+    const frontendUrl = this.configService.get<string>('CLIENT_APPROVAL_URL');
+
+    const isResubmission = options?.isResubmission === true;
+    const subject = isResubmission
+      ? 'Listing updated — awaiting review'
+      : 'New Property Awaiting Approval';
+    const text = isResubmission
+      ? `The listing "${property.title}" was updated by the owner and is pending review again. Review it here: ${frontendUrl}/approvals`
+      : `A new property "${property.title}" has been submitted and is awaiting approval. View it here: ${frontendUrl}/approvals`;
+    const html = isResubmission
+      ? `
+            <p>The listing <b>${property.title}</b> was <b>updated</b> and is <b>pending review</b> again.</p>
+            <a href="${frontendUrl}" style="display:inline-block;padding:10px 15px;background-color:#007bff;color:white;text-decoration:none;border-radius:5px;">Review Properties</a>
+          `
+      : `
+            <p>A new property <b>${property.title}</b> has been submitted and is awaiting approval.</p>
+            <a href="${frontendUrl}" style="display:inline-block;padding:10px 15px;background-color:#007bff;color:white;text-decoration:none;border-radius:5px;">Review Properties</a>
+          `;
 
     try {
       for (const adminEmail of adminEmails) {
         await transporter.sendMail({
           from,
           to: adminEmail,
-          subject: 'New Property Awaiting Approval',
-          text: `A new property "${property.title}" has been submitted and is awaiting approval. View it here: ${frontendUrl}/approvals`,
-          html: `
-            <p>A new property <b>${property.title}</b> has been submitted and is awaiting approval.</p>
-            <a href="${frontendUrl}" style="display:inline-block;padding:10px 15px;background-color:#007bff;color:white;text-decoration:none;border-radius:5px;">Review Properties</a>
-          `,
+          subject,
+          text,
+          html,
         });
       }
     } catch (e) {
@@ -242,7 +295,7 @@ export class PropertiesService {
     const transporter = this.getMailTransporter();
     const frontendUrl =
       this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
-    const editUrl = `${frontendUrl}/properties/${property.id}`;
+    const editUrl = `${frontendUrl}/property/${buildPropertyPath(property.id, property.title)}`;
 
     try {
       await transporter.sendMail({
@@ -334,12 +387,31 @@ View the listing: ${propertyUrl}`,
     return this.mailTransporter;
   }
 
-  async findMyProperties(userId: number): Promise<Property[]> {
-    return await this.propertyRepository.find({ where: { createdBy: userId } });
+  async findMyProperties(
+    userId: number,
+  ): Promise<Array<Property & { creator: PropertyUserSummary | null }>> {
+    const properties = await this.propertyRepository.find({
+      where: { createdBy: userId },
+    });
+    return this.attachCreatorsToProperties(properties);
   }
 
-  async findAll(): Promise<Property[]> {
-    return await this.propertyRepository.find();
+  async findAll(): Promise<
+    Array<Property & { creator: PropertyUserSummary | null }>
+  > {
+    const properties = await this.propertyRepository.find();
+    return this.attachCreatorsToProperties(properties);
+  }
+
+  /** Listings where `assignedAgentId` is one of the given agent user ids (explicit assignment). */
+  async findByAssignedAgentIds(agentIds: number[]): Promise<Property[]> {
+    if (agentIds.length === 0) {
+      return [];
+    }
+    return this.propertyRepository.find({
+      where: { assignedAgentId: In(agentIds) },
+      order: { id: 'DESC' },
+    });
   }
 
   async findOne(id: number): Promise<Property> {
@@ -350,34 +422,96 @@ View the listing: ${propertyUrl}`,
     return property;
   }
 
+  /** Single property for public/detail API: `agent` (listing) + `creator` (submitter). */
+  async findOneWithAgent(id: number): Promise<
+    Property & {
+      agent: PropertyUserSummary | null;
+      creator: PropertyUserSummary | null;
+    }
+  > {
+    const property = await this.findOne(id);
+    const agentUserId = this.getListingAgentUserId(property);
+
+    const idsToLoad = new Set<number>();
+    if (agentUserId != null) {
+      idsToLoad.add(agentUserId);
+    }
+    if (property.createdBy != null) {
+      idsToLoad.add(property.createdBy);
+    }
+
+    let userById = new Map<number, PropertyUserSummary>();
+    if (idsToLoad.size > 0) {
+      const users = await this.usersService.findByIds([...idsToLoad]);
+      userById = new Map(
+        users.map((u) => [u.id, this.toPropertyUserSummary(u)]),
+      );
+    }
+
+    const agent =
+      agentUserId != null ? (userById.get(agentUserId) ?? null) : null;
+    const creator =
+      property.createdBy != null
+        ? (userById.get(property.createdBy) ?? null)
+        : null;
+
+    return { ...property, agent, creator };
+  }
+
   async update(
     id: number,
     updatePropertyDto: UpdatePropertyDto,
+    userId: number,
+    role: string,
   ): Promise<Property> {
     const property = await this.findOne(id);
+    const previousStatus = property.status;
     const previousAssignedId = property.assignedAgentId;
 
-    let agentToNotify: User | null = null;
-    if (updatePropertyDto.assignedAgentId !== undefined) {
-      if (updatePropertyDto.assignedAgentId != null) {
-        const agent = await this.usersService.findOne(
-          updatePropertyDto.assignedAgentId,
+    const isAdmin = role === UserRole.ADMIN;
+
+    if (!isAdmin) {
+      if (property.createdBy !== userId) {
+        throw new ForbiddenException(
+          'You can only update properties you created',
         );
+      }
+    }
+
+    const dto = { ...updatePropertyDto };
+    if (!isAdmin) {
+      delete dto.assignedAgentId;
+      delete dto.status;
+    }
+
+    let agentToNotify: User | null = null;
+    if (isAdmin && dto.assignedAgentId !== undefined) {
+      if (dto.assignedAgentId != null) {
+        const agent = await this.usersService.findOne(dto.assignedAgentId);
         if (agent.role !== UserRole.AGENT) {
           throw new BadRequestException(
             'assignedAgentId must be a user with the agent role.',
           );
         }
-        if (
-          updatePropertyDto.assignedAgentId !== previousAssignedId &&
-          agent.email
-        ) {
+        if (dto.assignedAgentId !== previousAssignedId && agent.email) {
           agentToNotify = agent;
         }
       }
     }
 
-    const updatedProperty = Object.assign(property, updatePropertyDto);
+    const updatedProperty = Object.assign(property, dto);
+    if (!isAdmin) {
+      updatedProperty.status = PropertyStatus.PENDING;
+    }
+
+    if (updatedProperty.status === PropertyStatus.APPROVED) {
+      if (previousStatus !== PropertyStatus.APPROVED) {
+        updatedProperty.approvedAt = new Date();
+      }
+    } else {
+      updatedProperty.approvedAt = null;
+    }
+
     const result = await this.propertyRepository.update(id, updatedProperty);
     if (result.affected === 0) {
       throw new NotFoundException(`Property with ID ${id} not found`);
@@ -390,6 +524,16 @@ View the listing: ${propertyUrl}`,
         agentToNotify.name,
       ).catch((err) =>
         console.error('Failed to notify assigned agent on update', err),
+      );
+    }
+
+    if (
+      !isAdmin &&
+      previousStatus !== PropertyStatus.PENDING
+    ) {
+      this.notifyAdmin(updatedProperty, { isResubmission: true }).catch(
+        (err) =>
+          console.error('Failed to notify admin about listing resubmission', err),
       );
     }
 

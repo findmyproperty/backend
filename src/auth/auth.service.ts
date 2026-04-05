@@ -14,6 +14,7 @@ import { createHash, randomInt } from 'crypto';
 import nodemailer from 'nodemailer';
 import { UpdateMeDto } from './dto/update-me.dto';
 import { User, UserRole } from '../users/entities/user.entity';
+import { parseDurationToSeconds } from '../helper/duration';
 import { VerifyPhoneOtpDto } from './dto/verify-phone-otp.dto';
 import twilio, { type Twilio } from 'twilio';
 
@@ -31,6 +32,11 @@ interface VerificationJwtPayload {
   sub: number;
   email: string;
   type: string;
+}
+
+interface RefreshJwtPayload {
+  sub: number;
+  typ: 'refresh';
 }
 
 @Injectable()
@@ -348,6 +354,95 @@ export class AuthService {
     return this.buildAuthResponse(updated);
   }
 
+  /** Exchange refresh JWT for new access + refresh tokens (cookie set in controller). */
+  async refreshWithRefreshToken(refreshToken: string) {
+    const secret = this.getRefreshJwtSecret();
+    let payload: RefreshJwtPayload;
+    try {
+      payload = this.jwtService.verify(refreshToken, {
+        secret,
+      }) as RefreshJwtPayload;
+    } catch {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+    if (payload.typ !== 'refresh') {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+    const user = await this.usersService.findOne(payload.sub);
+    return this.buildAuthResponse(user);
+  }
+
+  /** Shared path / TTL / `SameSite` for auth cookies (refresh + role). */
+  private getAuthCookieBaseOptions(): {
+    secure: boolean;
+    sameSite: 'lax' | 'strict' | 'none';
+    maxAge: number;
+    path: string;
+  } {
+    const isProd = this.configService.get<string>('NODE_ENV') === 'production';
+    const raw = (
+      this.configService.get<string>('REFRESH_COOKIE_SAME_SITE') || 'lax'
+    ).toLowerCase();
+    const sameSite: 'lax' | 'strict' | 'none' =
+      raw === 'none' || raw === 'strict' ? raw : 'lax';
+    return {
+      secure: isProd || sameSite === 'none',
+      sameSite,
+      maxAge: this.getRefreshCookieMaxAgeMs(),
+      path: '/',
+    };
+  }
+
+  /** Options for `Set-Cookie` on login / refresh (HTTP-only refresh token). */
+  getRefreshCookieOptions(): {
+    httpOnly: boolean;
+    secure: boolean;
+    sameSite: 'lax' | 'strict' | 'none';
+    maxAge: number;
+    path: string;
+  } {
+    return {
+      ...this.getAuthCookieBaseOptions(),
+      httpOnly: true,
+    };
+  }
+
+  /**
+   * Readable role cookie (not HTTP-only) so the client / edge middleware can route by role.
+   * Same TTL and site rules as the refresh cookie.
+   */
+  getRoleCookieOptions(): {
+    httpOnly: boolean;
+    secure: boolean;
+    sameSite: 'lax' | 'strict' | 'none';
+    maxAge: number;
+    path: string;
+  } {
+    return {
+      ...this.getAuthCookieBaseOptions(),
+      httpOnly: false,
+    };
+  }
+
+  getClearRefreshCookieOptions(): { path: string; httpOnly: boolean } {
+    return { path: '/', httpOnly: true };
+  }
+
+  getClearRoleCookieOptions(): {
+    path: string;
+    httpOnly: boolean;
+    secure: boolean;
+    sameSite: 'lax' | 'strict' | 'none';
+  } {
+    const base = this.getAuthCookieBaseOptions();
+    return {
+      path: base.path,
+      httpOnly: false,
+      secure: base.secure,
+      sameSite: base.sameSite,
+    };
+  }
+
   private buildAuthResponse(user: User) {
     const publicUser = this.toPublicUser(user);
     const payload = {
@@ -360,8 +455,37 @@ export class AuthService {
 
     return {
       access_token: this.jwtService.sign(payload),
+      refresh_token: this.signRefreshToken(user.id),
       user: publicUser,
     };
+  }
+
+  private signRefreshToken(userId: number): string {
+    const secret = this.getRefreshJwtSecret();
+    const expiresIn =
+      parseDurationToSeconds(
+        this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d',
+      ) ?? 7 * 24 * 60 * 60;
+    return this.jwtService.sign(
+      { sub: userId, typ: 'refresh' },
+      { secret, expiresIn },
+    );
+  }
+
+  private getRefreshJwtSecret(): string {
+    return (
+      this.configService.get<string>('JWT_REFRESH_SECRET') ||
+      this.configService.get<string>('JWT_SECRET') ||
+      'secretKey'
+    );
+  }
+
+  private getRefreshCookieMaxAgeMs(): number {
+    const fromEnv = this.configService.get<string>('REFRESH_COOKIE_MAX_AGE_MS');
+    if (fromEnv != null && fromEnv !== '' && Number.isFinite(Number(fromEnv))) {
+      return Number(fromEnv);
+    }
+    return 7 * 24 * 60 * 60 * 1000;
   }
 
   generateVerificationToken(userId: number, email: string): string {

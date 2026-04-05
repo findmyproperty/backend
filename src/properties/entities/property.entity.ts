@@ -1,4 +1,10 @@
-import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 import {
   ListingType,
   PropertyType,
@@ -93,4 +99,14 @@ export class Property {
   /** Listing agent who receives tenant leads; falls back to createdBy when unset (legacy rows). */
   @Column({ type: 'int', nullable: true })
   assignedAgentId: number | null;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
+
+  /** Set when status becomes `Approved`; cleared when moving back to pending or rejected. */
+  @Column({ type: 'datetime', nullable: true })
+  approvedAt: Date | null;
 }
