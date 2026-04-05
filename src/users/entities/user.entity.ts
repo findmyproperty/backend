@@ -71,6 +71,15 @@ export class User {
   @Column({ type: 'enum', enum: UserRole, default: UserRole.TENANT })
   role: UserRole;
 
+  /** Preferred / default role for routing and new sessions; backfilled from `role` for legacy rows. */
+  @Column({
+    type: 'enum',
+    enum: UserRole,
+    name: 'default_role',
+    nullable: true,
+  })
+  defaultRole: UserRole | null;
+
   @Column('simple-array', { nullable: true })
   favorites: number[];
 

@@ -39,12 +39,15 @@ export class UsersService {
 
     const password = await this.hashPassword(createUserDto.password);
     const pendingEmail = this.normalizeEmail(createUserDto.pendingEmail);
+    const role = createUserDto.role ?? UserRole.TENANT;
     const user = this.usersRepository.create({
       ...createUserDto,
       email,
       phone,
       password,
       pendingEmail,
+      role,
+      defaultRole: role,
     });
     const savedUser = await this.usersRepository.save(user);
     return this.stripPassword(savedUser);
@@ -103,6 +106,7 @@ export class UsersService {
         'latitude',
         'longitude',
         'onboardingCompleted',
+        'defaultRole',
       ],
     });
   }
@@ -136,6 +140,7 @@ export class UsersService {
         'latitude',
         'longitude',
         'onboardingCompleted',
+        'defaultRole',
       ],
     });
   }

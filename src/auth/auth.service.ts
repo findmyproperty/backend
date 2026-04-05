@@ -576,6 +576,7 @@ export class AuthService {
       pendingEmail: user.pendingEmail ?? null,
       phone: user.phone ?? null,
       role: this.normalizeRole(user.role),
+      defaultRole: this.normalizeRole(user.role),
       isEmailVerified: Boolean(user.isEmailVerified),
       isPhoneVerified: Boolean(user.isPhoneVerified),
       onboardingCompleted: Boolean(user.onboardingCompleted),
