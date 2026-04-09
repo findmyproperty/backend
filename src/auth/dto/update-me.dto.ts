@@ -1,4 +1,5 @@
-import { IsEmail, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsEmail, IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
+import { UserRole } from 'src/users/entities/user.entity';
 
 export class UpdateMeDto {
   @IsEmail()
@@ -33,7 +34,7 @@ export class UpdateMeDto {
   @IsOptional()
   longitude?: number;
 
-  @IsString()
+  @IsEnum(UserRole)
   @IsOptional()
-  role?: string;
+  role?: UserRole = UserRole.TENANT;
 }

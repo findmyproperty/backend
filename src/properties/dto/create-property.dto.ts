@@ -4,6 +4,7 @@ import {
   IsEnum,
   IsArray,
   IsOptional,
+  IsInt,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -127,4 +128,10 @@ export class CreatePropertyDto {
   @IsOptional()
   @IsString()
   reason?: string;
+
+  /** Admin may set the listing agent; agents get this automatically on create. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  assignedAgentId?: number;
 }

@@ -1,5 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import { ValidationPipe } from '@nestjs/common';
+import cookieParser from 'cookie-parser';
 
 const LOCAL_DEV_ORIGINS = [
   'http://localhost:5173',
@@ -28,6 +29,8 @@ function getAllowedOrigins(): string[] {
 }
 
 export function configureNestApp(app: INestApplication) {
+  app.use(cookieParser());
+
   const allowedOrigins = getAllowedOrigins();
 
   app.enableCors({

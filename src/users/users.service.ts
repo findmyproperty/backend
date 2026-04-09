@@ -4,10 +4,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { User } from './entities/user.entity';
+import { User, UserRole } from './entities/user.entity';
 import * as bcrypt from 'bcrypt';
 
 const PASSWORD_SALT_ROUNDS = 10;
@@ -39,12 +39,15 @@ export class UsersService {
 
     const password = await this.hashPassword(createUserDto.password);
     const pendingEmail = this.normalizeEmail(createUserDto.pendingEmail);
+    const role = createUserDto.role ?? UserRole.TENANT;
     const user = this.usersRepository.create({
       ...createUserDto,
       email,
       phone,
       password,
       pendingEmail,
+      role,
+      defaultRole: role,
     });
     const savedUser = await this.usersRepository.save(user);
     return this.stripPassword(savedUser);
@@ -54,7 +57,11 @@ export class UsersService {
     return await this.usersRepository.find();
   }
 
-  async findByRole(role: string): Promise<User[]> {
+  async findAllAdmins(): Promise<User[]> {
+    return await this.usersRepository.find({ where: { role: UserRole.ADMIN } });
+  }
+
+  async findByRole(role: UserRole): Promise<User[]> {
     return await this.usersRepository.find({ where: { role } });
   }
 
@@ -64,6 +71,15 @@ export class UsersService {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
     return user;
+  }
+
+  /** Batch load users by primary key (e.g. populate property creators). */
+  async findByIds(ids: number[]): Promise<User[]> {
+    const unique = [...new Set(ids.filter((id) => id != null))] as number[];
+    if (unique.length === 0) {
+      return [];
+    }
+    return this.usersRepository.findBy({ id: In(unique) });
   }
 
   async findByEmail(email: string): Promise<User | null> {
@@ -90,6 +106,7 @@ export class UsersService {
         'latitude',
         'longitude',
         'onboardingCompleted',
+        'defaultRole',
       ],
     });
   }
@@ -123,6 +140,7 @@ export class UsersService {
         'latitude',
         'longitude',
         'onboardingCompleted',
+        'defaultRole',
       ],
     });
   }
