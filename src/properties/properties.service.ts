@@ -43,7 +43,7 @@ export class PropertiesService {
     private readonly propertyRepository: Repository<Property>,
     private configService: ConfigService,
     private readonly usersService: UsersService,
-  ) {}
+  ) { }
 
   getListingAgentUserId(property: Property): number | null {
     return property.assignedAgentId ?? property.createdBy ?? null;
@@ -134,7 +134,7 @@ export class PropertiesService {
 
     let assignedAgentForEmail: User | null = null;
 
-    if (dto.assignedAgentId != null) {
+    if (dto.assignedAgentId != null && !dto.skipAgentAssignment) {
       const agent = await this.usersService.findOne(dto.assignedAgentId);
       if (agent.role !== UserRole.AGENT) {
         throw new BadRequestException(

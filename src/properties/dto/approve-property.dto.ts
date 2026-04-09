@@ -6,4 +6,6 @@ export class ApprovePropertyDto {
   @IsInt()
   @Min(1)
   assignedAgentId?: number;
+  @IsOptional()
+  skipAgentAssignment?: boolean;
 }
