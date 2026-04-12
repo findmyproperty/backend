@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   InternalServerErrorException,
   ServiceUnavailableException,
@@ -25,6 +26,8 @@ export class ContactService {
   ) {}
 
   async sendToAdmins(dto: CreateContactDto): Promise<{ message: string }> {
+    await this.verifyRecaptchaIfConfigured(dto.recaptchaToken);
+
     const admins = await this.usersService.findAllAdmins();
     const adminEmails = admins
       .map((a) => a.email)
@@ -111,5 +114,71 @@ ${dto.message.trim()}
     });
     this.mailTransporter = transport as MailTransporter;
     return this.mailTransporter;
+  }
+
+  /** When `RECAPTCHA_SECRET_KEY` or `CONTACT_RECAPTCHA_SECRET` is set, token is required and verified with Google. */
+  private async verifyRecaptchaIfConfigured(
+    token: string | undefined,
+  ): Promise<void> {
+    const secret =
+      this.configService.get<string>('RECAPTCHA_SECRET_KEY')?.trim() ||
+      this.configService.get<string>('CONTACT_RECAPTCHA_SECRET')?.trim();
+    if (!secret) {
+      return;
+    }
+
+    const response = token?.trim();
+    if (!response) {
+      throw new BadRequestException('Verification required.');
+    }
+
+    const body = new URLSearchParams();
+    body.set('secret', secret);
+    body.set('response', response);
+
+    let data: {
+      success?: boolean;
+      score?: number;
+      'error-codes'?: string[];
+    };
+
+    try {
+      const res = await fetch(
+        'https://www.google.com/recaptcha/api/siteverify',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        },
+      );
+      if (!res.ok) {
+        throw new BadRequestException('Verification service unavailable.');
+      }
+      data = (await res.json()) as typeof data;
+    } catch (e) {
+      if (e instanceof BadRequestException) throw e;
+      console.error('reCAPTCHA verify request failed', e);
+      throw new BadRequestException('Verification service unavailable.');
+    }
+
+    if (!data.success) {
+      throw new BadRequestException('Verification failed. Please try again.');
+    }
+
+    const minScoreRaw = this.configService.get<string>(
+      'CONTACT_RECAPTCHA_MIN_SCORE',
+    );
+    const minScore =
+      minScoreRaw != null && minScoreRaw !== ''
+        ? Number(minScoreRaw)
+        : 0.5;
+
+    if (
+      typeof data.score === 'number' &&
+      Number.isFinite(minScore) &&
+      data.score < minScore
+    ) {
+      throw new BadRequestException('Verification failed. Please try again.');
+    }
   }
 }

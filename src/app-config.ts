@@ -29,6 +29,11 @@ function getAllowedOrigins(): string[] {
 }
 
 export function configureNestApp(app: INestApplication) {
+  const expressApp = app.getHttpAdapter().getInstance() as {
+    set?: (setting: string, val: boolean | number | string) => void;
+  };
+  expressApp.set?.('trust proxy', 1);
+
   app.use(cookieParser());
 
   const allowedOrigins = getAllowedOrigins();
