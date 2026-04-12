@@ -14,6 +14,8 @@ import { UpdatePropertyDto } from './dto/update-property.dto';
 import { ApprovePropertyDto } from './dto/approve-property.dto';
 import { RejectPropertyDto } from './dto/reject-property.dto';
 import { Property } from './entities/property.entity';
+import { PropertyComment } from './entities/property-comment.entity';
+import { CreatePropertyCommentDto } from './dto/create-property-comment.dto';
 import { UsersService } from '../users/users.service';
 import { User, UserRole } from '../users/entities/user.entity';
 import { buildPropertyPath } from '../helper/property-slug';
@@ -34,6 +36,14 @@ export interface PropertyUserSummary {
   role: UserRole;
 }
 
+export interface PropertyCommentItem {
+  id: number;
+  propertyId: number;
+  body: string;
+  createdAt: Date;
+  author: PropertyUserSummary;
+}
+
 @Injectable()
 export class PropertiesService {
   private mailTransporter: MailTransporter | null = null;
@@ -41,9 +51,11 @@ export class PropertiesService {
   constructor(
     @InjectRepository(Property)
     private readonly propertyRepository: Repository<Property>,
+    @InjectRepository(PropertyComment)
+    private readonly propertyCommentRepository: Repository<PropertyComment>,
     private configService: ConfigService,
     private readonly usersService: UsersService,
-  ) { }
+  ) {}
 
   getListingAgentUserId(property: Property): number | null {
     return property.assignedAgentId ?? property.createdBy ?? null;
@@ -396,10 +408,91 @@ View the listing: ${propertyUrl}`,
     return this.attachCreatorsToProperties(properties);
   }
 
-  async findAll(): Promise<
-    Array<Property & { creator: PropertyUserSummary | null }>
-  > {
-    const properties = await this.propertyRepository.find();
+  async findCommentsForProperty(
+    propertyId: number,
+  ): Promise<PropertyCommentItem[]> {
+    const property = await this.propertyRepository.findOne({
+      where: { id: propertyId },
+    });
+    if (!property) {
+      throw new NotFoundException(`Property with ID ${propertyId} not found`);
+    }
+    if (property.status !== PropertyStatus.APPROVED) {
+      return [];
+    }
+    const comments = await this.propertyCommentRepository.find({
+      where: { propertyId },
+      order: { createdAt: 'DESC' },
+    });
+    const userIds = [...new Set(comments.map((c) => c.userId))];
+    const users = await this.usersService.findByIds(userIds);
+    const byId = new Map(
+      users.map((u) => [u.id, this.toPropertyUserSummary(u)]),
+    );
+    return comments.map((c) => ({
+      id: c.id,
+      propertyId: c.propertyId,
+      body: c.body,
+      createdAt: c.createdAt,
+      author:
+        byId.get(c.userId) ??
+        ({
+          id: c.userId,
+          name: null,
+          email: null,
+          phone: null,
+          role: UserRole.TENANT,
+        } satisfies PropertyUserSummary),
+    }));
+  }
+
+  async createComment(
+    propertyId: number,
+    userId: number,
+    dto: CreatePropertyCommentDto,
+  ): Promise<PropertyCommentItem> {
+    const property = await this.findOne(propertyId);
+    if (property.status !== PropertyStatus.APPROVED) {
+      throw new BadRequestException(
+        'Comments are only allowed on approved listings.',
+      );
+    }
+    const body = dto.body.trim();
+    if (!body) {
+      throw new BadRequestException('Comment cannot be empty.');
+    }
+    const saved = await this.propertyCommentRepository.save(
+      this.propertyCommentRepository.create({
+        propertyId,
+        userId,
+        body,
+      }),
+    );
+    const user = await this.usersService.findOne(userId);
+    return {
+      id: saved.id,
+      propertyId: saved.propertyId,
+      body: saved.body,
+      createdAt: saved.createdAt,
+      author: this.toPropertyUserSummary(user),
+    };
+  }
+
+  /**
+   * Public catalogue: approved listings only. Pass `includeAllStatuses` for admin
+   * review (pending/rejected included).
+   */
+  async findAll(
+    includeAllStatuses = false,
+  ): Promise<Array<Property & { creator: PropertyUserSummary | null }>> {
+    const properties = await this.propertyRepository.find(
+      includeAllStatuses
+        ? { order: { id: 'DESC' } }
+        : {
+            where: { status: PropertyStatus.APPROVED },
+            order: { id: 'DESC' },
+          },
+    );
     return this.attachCreatorsToProperties(properties);
   }
 
@@ -423,13 +516,20 @@ View the listing: ${propertyUrl}`,
   }
 
   /** Single property for public/detail API: `agent` (listing) + `creator` (submitter). */
-  async findOneWithAgent(id: number): Promise<
+  async findOneWithAgent(
+    id: number,
+    options?: { viewerRole?: string },
+  ): Promise<
     Property & {
       agent: PropertyUserSummary | null;
       creator: PropertyUserSummary | null;
     }
   > {
     const property = await this.findOne(id);
+    const isAdmin = options?.viewerRole === UserRole.ADMIN;
+    if (property.status !== PropertyStatus.APPROVED && !isAdmin) {
+      throw new NotFoundException(`Property with ID ${id} not found`);
+    }
     const agentUserId = this.getListingAgentUserId(property);
 
     const idsToLoad = new Set<number>();

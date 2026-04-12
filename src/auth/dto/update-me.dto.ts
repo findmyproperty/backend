@@ -8,6 +8,10 @@ export class UpdateMeDto {
 
   @IsString()
   @IsOptional()
+  phone?: string;
+
+  @IsString()
+  @IsOptional()
   name?: string;
 
   @IsString()

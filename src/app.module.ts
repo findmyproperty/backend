@@ -15,7 +15,9 @@ import { Setting } from './settings/entities/setting.entity';
 import { AgentsModule } from './agents/agents.module';
 import { LeadsModule } from './leads/leads.module';
 import { AdminModule } from './admin/admin.module';
+import { ContactModule } from './contact/contact.module';
 import { PropertyLead } from './leads/entities/property-lead.entity';
+import { PropertyComment } from './properties/entities/property-comment.entity';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -39,7 +41,14 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
           username: configService.get<string>('DB_USERNAME'),
           password: configService.get<string>('DB_PASSWORD'),
           database: configService.get<string>('DB_DATABASE'),
-          entities: [User, Property, SystemLog, Setting, PropertyLead],
+          entities: [
+            User,
+            Property,
+            SystemLog,
+            Setting,
+            PropertyLead,
+            PropertyComment,
+          ],
           synchronize: true, // Only for development!
         };
       },
@@ -53,6 +62,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
     AgentsModule,
     LeadsModule,
     AdminModule,
+    ContactModule,
   ],
   providers: [
     {

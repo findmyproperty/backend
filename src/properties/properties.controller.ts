@@ -16,8 +16,11 @@ import { CreatePropertyDto, PropertyStatus } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { ApprovePropertyDto } from './dto/approve-property.dto';
 import { RejectPropertyDto } from './dto/reject-property.dto';
+import { CreatePropertyCommentDto } from './dto/create-property-comment.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { Request } from 'express';
+import { UserRole } from '../users/entities/user.entity';
 
 interface RequestWithUser extends Request {
   user?: {
@@ -61,14 +64,38 @@ export class PropertiesController {
     return this.propertiesService.findMyProperties(userId);
   }
 
+  @UseGuards(OptionalJwtAuthGuard)
   @Get()
-  findAll() {
-    return this.propertiesService.findAll();
+  findAll(@Req() req: RequestWithUser) {
+    const isAdmin = req.user?.role === UserRole.ADMIN;
+    return this.propertiesService.findAll(isAdmin);
   }
 
+  @Get(':id/comments')
+  listComments(@Param('id', ParseIntPipe) id: number) {
+    return this.propertiesService.findCommentsForProperty(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/comments')
+  createComment(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreatePropertyCommentDto,
+    @Req() req: RequestWithUser,
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ForbiddenException('User not authenticated properly');
+    }
+    return this.propertiesService.createComment(id, userId, dto);
+  }
+
+  @UseGuards(OptionalJwtAuthGuard)
   @Get(':id')
-  findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.propertiesService.findOneWithAgent(id);
+  findOne(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
+    return this.propertiesService.findOneWithAgent(id, {
+      viewerRole: req.user?.role,
+    });
   }
 
   @UseGuards(JwtAuthGuard)

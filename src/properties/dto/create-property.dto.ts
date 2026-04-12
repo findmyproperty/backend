@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsInt,
   Min,
+  Max,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -27,6 +28,12 @@ export enum PropertyStatus {
   PENDING = 'Pending',
   APPROVED = 'Approved',
   REJECTED = 'Rejected',
+}
+
+export enum FurnishingType {
+  UNFURNISHED = 'unfurnished',
+  SEMI_FURNISHED = 'semi-furnished',
+  FURNISHED = 'furnished',
 }
 
 export class FloorPlanDto {
@@ -65,6 +72,10 @@ export class CreatePropertyDto {
   @IsEnum(PropertyType)
   propertyType: PropertyType;
 
+  @IsOptional()
+  @IsEnum(FurnishingType)
+  furnishing?: FurnishingType;
+
   @IsString()
   address: string;
 
@@ -80,6 +91,18 @@ export class CreatePropertyDto {
 
   @IsString()
   country: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  longitude?: number;
 
   @IsNumber()
   @Min(0)

@@ -9,6 +9,7 @@ import {
   ListingType,
   PropertyType,
   PropertyStatus,
+  FurnishingType,
   FloorPlanDto,
 } from '../dto/create-property.dto';
 
@@ -41,6 +42,13 @@ export class Property {
   })
   propertyType: PropertyType;
 
+  @Column({
+    type: 'simple-enum',
+    enum: FurnishingType,
+    nullable: true,
+  })
+  furnishing: FurnishingType | null;
+
   @Column()
   address: string;
 
@@ -55,6 +63,12 @@ export class Property {
 
   @Column()
   country: string;
+
+  @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
+  latitude: number | null;
+
+  @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
+  longitude: number | null;
 
   @Column()
   bedrooms: number;

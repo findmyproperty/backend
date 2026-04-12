@@ -19,7 +19,7 @@ import { VerifyPhoneOtpDto } from './dto/verify-phone-otp.dto';
 import twilio, { type Twilio } from 'twilio';
 
 /** Fallback OTP when Twilio is not configured (e.g. local dev). */
-const FALLBACK_OTP_CODE = '4567';
+const FALLBACK_OTP_CODE = '456789';
 
 /** Mail transporter shape used here to avoid nodemailer typings issues. */
 interface MailTransporter {
@@ -64,7 +64,7 @@ export class AuthService {
     );
     if (!verifyServiceSid) {
       this.logger.warn(
-        'Twilio not configured; using fallback OTP. Use code 4567 to verify.',
+        'Twilio not configured; using fallback OTP. Use code 456789 to verify.',
       );
       return {
         message: 'OTP sent successfully',
@@ -220,12 +220,20 @@ export class AuthService {
   async updateMe(userId: number, body: UpdateMeDto) {
     const current = await this.usersService.findOne(userId);
     const normalizedEmail = this.normalizeEmail(body.email);
+    const normalizedPhone = this.normalizePhone(body.phone);
 
     if (normalizedEmail) {
       const existingByEmail =
         await this.usersService.findByEmail(normalizedEmail);
       if (existingByEmail && existingByEmail.id !== userId) {
         throw new ConflictException('Email already exists');
+      }
+    }
+
+    if (normalizedPhone) {
+      const existingByPhone = await this.usersService.findByPhone(normalizedPhone);
+      if (existingByPhone && existingByPhone.id !== userId) {
+        throw new ConflictException('Phone number already exists');
       }
     }
 
