@@ -121,8 +121,7 @@ ${dto.message.trim()}
     token: string | undefined,
   ): Promise<void> {
     const secret =
-      this.configService.get<string>('RECAPTCHA_SECRET_KEY')?.trim() ||
-      this.configService.get<string>('CONTACT_RECAPTCHA_SECRET')?.trim();
+      this.configService.get<string>('RECAPTCHA_SECRET_KEY')?.trim()
     if (!secret) {
       return;
     }
