@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { LessThan, Repository } from 'typeorm';
 import { SystemLog, LogLevel } from './entities/system-log.entity';
 
 @Injectable()
@@ -56,5 +56,36 @@ export class SystemLogsService {
       take: limit,
       skip: offset,
     });
+  }
+
+  /**
+   * Admin maintenance: delete rows matching the filter.
+   * - `olderThanHours`: delete rows older than N hours.
+   * - `level`: optionally restrict to one level (e.g. 'info' only).
+   * - If both are omitted, deletes ALL rows (TRUNCATE-equivalent via deleteAll).
+   * Returns the number of rows removed.
+   */
+  async clear(options: {
+    olderThanHours?: number;
+    level?: LogLevel;
+  }): Promise<{ deleted: number }> {
+    const where: Record<string, unknown> = {};
+    if (options.level) where.level = options.level;
+    if (options.olderThanHours && options.olderThanHours > 0) {
+      const cutoff = new Date(
+        Date.now() - options.olderThanHours * 60 * 60 * 1000,
+      );
+      where.timestamp = LessThan(cutoff);
+    }
+
+    if (Object.keys(where).length === 0) {
+      // Nuclear option: remove everything
+      const total = await this.logRepository.count();
+      await this.logRepository.clear();
+      return { deleted: total };
+    }
+
+    const result = await this.logRepository.delete(where);
+    return { deleted: result.affected ?? 0 };
   }
 }

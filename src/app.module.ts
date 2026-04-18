@@ -18,6 +18,8 @@ import { AdminModule } from './admin/admin.module';
 import { ContactModule } from './contact/contact.module';
 import { PropertyLead } from './leads/entities/property-lead.entity';
 import { PropertyComment } from './properties/entities/property-comment.entity';
+import { ServiceRequestsModule } from './service-requests/service-requests.module';
+import { ServiceRequest } from './service-requests/entities/service-request.entity';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -49,6 +51,12 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
           username: configService.get<string>('DB_USERNAME'),
           password: configService.get<string>('DB_PASSWORD'),
           database: configService.get<string>('DB_DATABASE'),
+          // Force UTC on the wire so timestamps survive round-trips unchanged
+          // regardless of the OS / MySQL server timezone. Without this,
+          // `mysql2` defaults to 'local' and shifts DATETIMEs by the local
+          // offset, producing "6 hours ago" on freshly-created rows in IST.
+          timezone: 'Z',
+          dateStrings: false,
           entities: [
             User,
             Property,
@@ -56,6 +64,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
             Setting,
             PropertyLead,
             PropertyComment,
+            ServiceRequest,
           ],
           synchronize: true, // Only for development!
         };
@@ -71,6 +80,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
     LeadsModule,
     AdminModule,
     ContactModule,
+    ServiceRequestsModule,
   ],
   providers: [
     {

@@ -48,6 +48,9 @@ export class SystemLog {
   @Column({ type: 'varchar', nullable: true })
   ip: string;
 
-  @CreateDateColumn()
+  // `timestamp` type is stored as UTC in MySQL and round-trips cleanly when the
+  // connection uses `timezone: 'Z'`. Millisecond precision (6) keeps ordering
+  // stable even for bursty log writes.
+  @CreateDateColumn({ type: 'timestamp', precision: 6 })
   timestamp: Date;
 }

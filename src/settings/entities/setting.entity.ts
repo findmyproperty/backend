@@ -5,41 +5,67 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+/**
+ * Global application settings. A single row (id = 1) holds the active config.
+ *
+ * Property names are camelCase to match the public API surface; the DB columns
+ * keep their original snake_case names via the `name` option so we don't
+ * disturb existing data (TypeORM `synchronize: true` would otherwise recreate
+ * columns on rename).
+ */
 @Entity('settings')
 export class Setting {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'varchar', length: 255, default: 'Find My Property' })
-  site_name: string;
+  @Column({
+    name: 'site_name',
+    type: 'varchar',
+    length: 255,
+    default: 'Find My Property',
+  })
+  siteName: string;
 
-  @Column({ type: 'varchar', length: 255, default: 'support@example.com' })
-  support_email: string;
+  @Column({
+    name: 'support_email',
+    type: 'varchar',
+    length: 255,
+    default: 'support@example.com',
+  })
+  supportEmail: string;
 
-  @Column({ type: 'boolean', default: false })
-  auto_approve_listings: boolean;
+  @Column({
+    name: 'support_phone',
+    type: 'varchar',
+    length: 30,
+    nullable: true,
+  })
+  supportPhone: string | null;
 
-  @Column({ type: 'boolean', default: true })
-  new_agent_registration: boolean;
+  @Column({ name: 'auto_approve_listings', type: 'boolean', default: false })
+  autoApproveListings: boolean;
+
+  @Column({ name: 'new_agent_registration', type: 'boolean', default: true })
+  newAgentRegistration: boolean;
 
   @Column({ type: 'varchar', length: 50, default: 'modern-blue' })
   theme: string;
 
-  @Column({ type: 'text', nullable: true })
-  primary_logo_url: string | null;
+  @Column({ name: 'primary_logo_url', type: 'text', nullable: true })
+  primaryLogoUrl: string | null;
 
-  @Column({ type: 'text', nullable: true })
-  favicon_url: string | null;
+  @Column({ name: 'favicon_url', type: 'text', nullable: true })
+  faviconUrl: string | null;
 
-  @Column({ type: 'text', nullable: true })
-  cloudinary_api_key: string | null;
+  @Column({ name: 'cloudinary_api_key', type: 'text', nullable: true })
+  cloudinaryApiKey: string | null;
 
-  @Column({ type: 'text', nullable: true })
-  google_maps_key: string | null;
+  @Column({ name: 'google_maps_key', type: 'text', nullable: true })
+  googleMapsKey: string | null;
 
-  @Column({ type: 'boolean', default: true })
-  two_factor_auth_enforced: boolean;
+  @Column({ name: 'two_factor_auth_enforced', type: 'boolean', default: true })
+  twoFactorAuthEnforced: boolean;
 
-  @UpdateDateColumn()
-  updated_at: Date;
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 }
