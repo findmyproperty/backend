@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import nodemailer from 'nodemailer';
 import { UsersService } from '../users/users.service';
 import { escapeHtmlForEmail } from '../helper/escape-html';
+import { BRAND_COLOR } from '../helper/email-theme';
 import {
   PackersMoversDetails,
   PaintingCleaningDetails,
@@ -246,12 +247,14 @@ export class ServiceRequestsNotifier {
 
     const stopsHtml = hasStructured
       ? `
-        ${this.buildStopCardHtml('Pickup', pickup!, '#10b981')}
+        ${this.buildStopCardHtml('Pickup', pickup!, BRAND_COLOR)}
         ${drops
           .map((stop, i) =>
             this.buildStopCardHtml(
               `Drop ${i + 1}${d.trip?.legs?.[i] ? ` · ${d.trip.legs[i].distanceKm.toFixed(1)} km · ${this.formatDuration(d.trip.legs[i].durationMin)}` : ''}`,
               stop,
+              // Keep drops on a neutral indigo so pickup (brand) vs drops
+              // stay visually distinguishable at a glance.
               '#6366f1',
             ),
           )
@@ -306,7 +309,7 @@ export class ServiceRequestsNotifier {
 
     const locHtml =
       d.location && d.location.lat && d.location.lng
-        ? this.buildStopCardHtml('Service location', d.location, '#6366f1')
+        ? this.buildStopCardHtml('Service location', d.location, BRAND_COLOR)
         : '';
 
     const notesHtml = d.notes
@@ -344,7 +347,7 @@ export class ServiceRequestsNotifier {
         <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#6b7280;">${escapeHtmlForEmail(title)}</div>
         <div style="font-weight:600; color:#111; margin:2px 0 4px;">${escapeHtmlForEmail(stop.label)}</div>
         ${notes ? `<div style="color:#6b7280; font-size:13px; margin-bottom:6px;">${escapeHtmlForEmail(notes)}</div>` : ''}
-        <a href="${mapHref}" style="display:inline-block; color:#2563eb; text-decoration:none; font-size:13px;">
+        <a href="${mapHref}" style="display:inline-block; color:${BRAND_COLOR}; text-decoration:none; font-size:13px;">
           Open in Google Maps &rarr;
         </a>
       </div>

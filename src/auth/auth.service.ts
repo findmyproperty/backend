@@ -17,6 +17,7 @@ import { User, UserRole } from '../users/entities/user.entity';
 import { parseDurationToSeconds } from '../helper/duration';
 import { VerifyPhoneOtpDto } from './dto/verify-phone-otp.dto';
 import twilio, { type Twilio } from 'twilio';
+import { BRAND_COLOR, BRAND_ON_COLOR } from '../helper/email-theme';
 
 /** Fallback OTP when Twilio is not configured (e.g. local dev). */
 const FALLBACK_OTP_CODE = '456789';
@@ -556,7 +557,7 @@ export class AuthService {
             <h2>Welcome to Find My Property!</h2>
             <p>Hello ${name || 'Agent'},</p>
             <p>Your agent account has been created. Please click the button below to verify your email address and activate your account:</p>
-            <a href="${verificationLink}" style="display:inline-block;padding:10px 20px;background-color:#007bff;color:white;text-decoration:none;border-radius:5px;font-weight:bold;">Verify Account</a>
+            <a href="${verificationLink}" style="display:inline-block;padding:10px 20px;background-color:${BRAND_COLOR};color:${BRAND_ON_COLOR};text-decoration:none;border-radius:5px;font-weight:bold;">Verify Account</a>
             <p style="margin-top: 20px;">If the button above doesn't work, you can also copy and paste the following link into your browser:</p>
             <p>${verificationLink}</p>
             <p>This link will expire in 24 hours.</p>

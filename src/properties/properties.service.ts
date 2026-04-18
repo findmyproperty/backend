@@ -20,6 +20,7 @@ import { UsersService } from '../users/users.service';
 import { User, UserRole } from '../users/entities/user.entity';
 import { buildPropertyPath } from '../helper/property-slug';
 import { escapeHtmlForEmail } from '../helper/escape-html';
+import { BRAND_COLOR, BRAND_ON_COLOR } from '../helper/email-theme';
 
 interface MailTransporter {
   sendMail(
@@ -240,11 +241,11 @@ export class PropertiesService {
     const html = isResubmission
       ? `
             <p>The listing <b>${property.title}</b> was <b>updated</b> and is <b>pending review</b> again.</p>
-            <a href="${frontendUrl}" style="display:inline-block;padding:10px 15px;background-color:#007bff;color:white;text-decoration:none;border-radius:5px;">Review Properties</a>
+            <a href="${frontendUrl}" style="display:inline-block;padding:10px 15px;background-color:${BRAND_COLOR};color:${BRAND_ON_COLOR};text-decoration:none;border-radius:5px;">Review Properties</a>
           `
       : `
             <p>A new property <b>${property.title}</b> has been submitted and is awaiting approval.</p>
-            <a href="${frontendUrl}" style="display:inline-block;padding:10px 15px;background-color:#007bff;color:white;text-decoration:none;border-radius:5px;">Review Properties</a>
+            <a href="${frontendUrl}" style="display:inline-block;padding:10px 15px;background-color:${BRAND_COLOR};color:${BRAND_ON_COLOR};text-decoration:none;border-radius:5px;">Review Properties</a>
           `;
 
     try {
@@ -365,10 +366,10 @@ You have been assigned as the listing agent for "${property.title}". You will re
 View the listing: ${propertyUrl}`,
         html: `
           <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-            <h2 style="color: #007bff;">New listing assignment</h2>
+            <h2 style="color: ${BRAND_COLOR};">New listing assignment</h2>
             <p>Hello${name ? ` <b>${name}</b>` : ''},</p>
             <p>You have been assigned as the <b>listing agent</b> for <b>${property.title}</b>. Tenant enquiries for this property will appear in your leads.</p>
-            <p><a href="${propertyUrl}" style="display:inline-block;padding:10px 20px;background-color:#007bff;color:white;text-decoration:none;border-radius:5px;font-weight:bold;">View property</a></p>
+            <p><a href="${propertyUrl}" style="display:inline-block;padding:10px 20px;background-color:${BRAND_COLOR};color:${BRAND_ON_COLOR};text-decoration:none;border-radius:5px;font-weight:bold;">View property</a></p>
             <p style="margin-top: 16px; font-size: 14px; color: #666;">If your app has a leads dashboard, open it from your agent account to manage enquiries.</p>
           </div>
         `,
