@@ -42,7 +42,10 @@ export class UpdateMeDto {
   @IsOptional()
   longitude?: number;
 
+  // No default value here on purpose: with the global ValidationPipe's
+  // `transform: true`, a default would silently demote any user who PATCHes
+  // /auth/me without an explicit `role` (e.g. saving just their name).
   @IsEnum(UserRole)
   @IsOptional()
-  role?: UserRole = UserRole.TENANT;
+  role?: UserRole;
 }

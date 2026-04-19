@@ -13,6 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { createHash, randomInt } from 'crypto';
 import nodemailer from 'nodemailer';
 import { UpdateMeDto } from './dto/update-me.dto';
+import { UpdateUserDto } from '../users/dto/update-user.dto';
 import { User, UserRole } from '../users/entities/user.entity';
 import { parseDurationToSeconds } from '../helper/duration';
 import { VerifyPhoneOtpDto } from './dto/verify-phone-otp.dto';
@@ -261,27 +262,37 @@ export class AuthService {
     };
 
     const onboardingCompleted = this.isOnboardingComplete(next);
-    const user = await this.usersService.update(userId, {
-      ...body,
-      ...(normalizedEmail !== undefined
-        ? {
-            email: normalizedEmail,
-            isEmailVerified: Boolean(normalizedEmail),
-            pendingEmail: null,
-            emailOtpHash: null,
-            emailOtpExpiresAt: null,
-          }
-        : {}),
-      ...(normalizedAvatarUrl !== undefined
-        ? { avatarUrl: normalizedAvatarUrl }
-        : {}),
-      name: body.name?.trim(),
-      locationAddress: body.locationAddress?.trim(),
-      locationCity: body.locationCity?.trim(),
-      locationState: body.locationState?.trim(),
-      locationCountry: body.locationCountry?.trim(),
-      onboardingCompleted,
-    });
+
+    // Build the patch conditionally so we never send `undefined` for fields
+    // the client didn't include. `usersService.update` does `Object.assign`,
+    // and assigning `undefined` would wipe the existing column value (e.g.
+    // saving role-only would erase name + location).
+    const patch: UpdateUserDto = { onboardingCompleted };
+    if (body.role !== undefined) patch.role = body.role;
+    if (body.phone !== undefined) patch.phone = body.phone;
+    if (body.latitude !== undefined) patch.latitude = body.latitude;
+    if (body.longitude !== undefined) patch.longitude = body.longitude;
+    if (body.name !== undefined) patch.name = body.name.trim();
+    if (body.locationAddress !== undefined)
+      patch.locationAddress = body.locationAddress.trim();
+    if (body.locationCity !== undefined)
+      patch.locationCity = body.locationCity.trim();
+    if (body.locationState !== undefined)
+      patch.locationState = body.locationState.trim();
+    if (body.locationCountry !== undefined)
+      patch.locationCountry = body.locationCountry.trim();
+    if (normalizedEmail !== undefined) {
+      patch.email = normalizedEmail;
+      patch.isEmailVerified = Boolean(normalizedEmail);
+      patch.pendingEmail = null;
+      patch.emailOtpHash = null;
+      patch.emailOtpExpiresAt = null;
+    }
+    if (normalizedAvatarUrl !== undefined) {
+      patch.avatarUrl = normalizedAvatarUrl;
+    }
+
+    const user = await this.usersService.update(userId, patch);
 
     return this.buildAuthResponse(user);
   }
@@ -600,7 +611,11 @@ export class AuthService {
       phone: user.phone ?? null,
       avatarUrl: user.avatarUrl ?? null,
       role: this.normalizeRole(user.role),
-      defaultRole: this.normalizeRole(user.role),
+      // `defaultRole` is the user's *permanent* role assigned at signup
+      // (admins keep `admin` here even after switching their runtime `role`
+      // via the Super Admin override). Falling back to `user.role` only
+      // covers legacy rows created before the column existed.
+      defaultRole: this.normalizeRole(user.defaultRole ?? user.role),
       isEmailVerified: Boolean(user.isEmailVerified),
       isPhoneVerified: Boolean(user.isPhoneVerified),
       onboardingCompleted: Boolean(user.onboardingCompleted),
