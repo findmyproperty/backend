@@ -14,6 +14,10 @@ export class UpdateMeDto {
   @IsOptional()
   name?: string;
 
+  @IsOptional()
+  @IsString()
+  avatarUrl?: string | null;
+
   @IsString()
   @IsOptional()
   locationAddress?: string;

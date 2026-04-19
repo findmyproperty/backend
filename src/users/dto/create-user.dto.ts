@@ -29,6 +29,10 @@ export class CreateUserDto {
   @IsOptional()
   googleId?: string;
 
+  @IsString()
+  @IsOptional()
+  avatarUrl?: string | null;
+
   @IsBoolean()
   @IsOptional()
   isEmailVerified?: boolean;

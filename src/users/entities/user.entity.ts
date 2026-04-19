@@ -32,6 +32,10 @@ export class User {
   @Column({ type: 'varchar', nullable: true })
   googleId: string | null;
 
+  /** Public profile picture URL (e.g. Cloudinary). Optional; falls back to initials in UI. */
+  @Column({ type: 'varchar', nullable: true })
+  avatarUrl: string | null;
+
   @Column({ default: false })
   isEmailVerified: boolean;
 

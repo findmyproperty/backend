@@ -238,11 +238,22 @@ export class AuthService {
       }
     }
 
+    const normalizedAvatarUrl =
+      body.avatarUrl === undefined
+        ? undefined
+        : body.avatarUrl === null || body.avatarUrl.trim() === ''
+          ? null
+          : body.avatarUrl.trim();
+
     const next = {
       ...current,
       ...body,
       email: normalizedEmail ?? current.email,
       name: body.name?.trim() ?? current.name,
+      avatarUrl:
+        normalizedAvatarUrl === undefined
+          ? current.avatarUrl
+          : normalizedAvatarUrl,
       locationAddress: body.locationAddress?.trim() ?? current.locationAddress,
       locationCity: body.locationCity?.trim() ?? current.locationCity,
       locationState: body.locationState?.trim() ?? current.locationState,
@@ -260,6 +271,9 @@ export class AuthService {
             emailOtpHash: null,
             emailOtpExpiresAt: null,
           }
+        : {}),
+      ...(normalizedAvatarUrl !== undefined
+        ? { avatarUrl: normalizedAvatarUrl }
         : {}),
       name: body.name?.trim(),
       locationAddress: body.locationAddress?.trim(),
@@ -584,6 +598,7 @@ export class AuthService {
       email: user.email ?? null,
       pendingEmail: user.pendingEmail ?? null,
       phone: user.phone ?? null,
+      avatarUrl: user.avatarUrl ?? null,
       role: this.normalizeRole(user.role),
       defaultRole: this.normalizeRole(user.role),
       isEmailVerified: Boolean(user.isEmailVerified),
