@@ -563,7 +563,7 @@ export class AuthService {
     try {
     const from = this.configService.get<string>('SMTP_FROM');
     const frontendUrl =
-      this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+      this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
     const verificationLink = `${frontendUrl}/verify-agent?token=${token}`;
 
     if (!from) {

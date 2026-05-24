@@ -272,7 +272,7 @@ export class PropertiesService {
     if (!from) return;
 
     const transporter = this.getMailTransporter();
-    const propertyUrl = `${this.configService.get<string>('FRONTEND_URL')}/properties/${property.id}`;
+    const propertyUrl = `${this.configService.get<string>('CLIENT_URL')}/properties/${property.id}`;
 
     try {
       await transporter.sendMail({
@@ -307,7 +307,7 @@ export class PropertiesService {
 
     const transporter = this.getMailTransporter();
     const frontendUrl =
-      this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+      this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
     const editUrl = `${frontendUrl}/property/${buildPropertyPath(property.id, property.title)}`;
 
     try {
@@ -351,7 +351,7 @@ ${editUrl}`,
 
     const transporter = this.getMailTransporter();
     const frontendUrl =
-      this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+      this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
     const propertyUrl = `${frontendUrl}/properties/${property.id}`;
 
     try {
