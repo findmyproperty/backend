@@ -103,15 +103,15 @@ export class AgentsController {
     }
     const agents = await this.usersService.findByRole(UserRole.AGENT);
     const agentIds = agents.map((a) => a.id);
-    const assignedProperties =
-      await this.propertiesService.findByAssignedAgentIds(agentIds);
+    const createdProperties =
+      await this.propertiesService.findByCreatorIds(agentIds);
 
     const propertiesByAgentId = new Map<number, Property[]>();
-    for (const p of assignedProperties) {
-      if (p.assignedAgentId == null) continue;
-      const list = propertiesByAgentId.get(p.assignedAgentId) ?? [];
+    for (const p of createdProperties) {
+      if (p.createdBy == null) continue;
+      const list = propertiesByAgentId.get(p.createdBy) ?? [];
       list.push(p);
-      propertiesByAgentId.set(p.assignedAgentId, list);
+      propertiesByAgentId.set(p.createdBy, list);
     }
 
     return agents.map((agent) => ({

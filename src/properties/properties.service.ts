@@ -366,7 +366,7 @@ You have been assigned as the listing agent for "${property.title}". You will re
 View the listing: ${propertyUrl}`,
         html: `
           <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-            <h2 style="color: ${BRAND_COLOR};">New listing assignment</h2>
+            <h2 style="color: ${BRAND_COLOR};">New listing Assigned</h2>
             <p>Hello${name ? ` <b>${name}</b>` : ''},</p>
             <p>You have been assigned as the <b>listing agent</b> for <b>${property.title}</b>. Tenant enquiries for this property will appear in your leads.</p>
             <p><a href="${propertyUrl}" style="display:inline-block;padding:10px 20px;background-color:${BRAND_COLOR};color:${BRAND_ON_COLOR};text-decoration:none;border-radius:5px;font-weight:bold;">View property</a></p>
@@ -504,6 +504,17 @@ View the listing: ${propertyUrl}`,
     }
     return this.propertyRepository.find({
       where: { assignedAgentId: In(agentIds) },
+      order: { id: 'DESC' },
+    });
+  }
+
+  /** Listings created by any of the given user ids. */
+  async findByCreatorIds(userIds: number[]): Promise<Property[]> {
+    if (userIds.length === 0) {
+      return [];
+    }
+    return this.propertyRepository.find({
+      where: { createdBy: In(userIds) },
       order: { id: 'DESC' },
     });
   }
