@@ -10,6 +10,7 @@ import {
   UseGuards,
   Req,
   ForbiddenException,
+  Query,
 } from '@nestjs/common';
 import { PropertiesService } from './properties.service';
 import { CreatePropertyDto, PropertyStatus } from './dto/create-property.dto';
@@ -17,6 +18,10 @@ import { UpdatePropertyDto } from './dto/update-property.dto';
 import { ApprovePropertyDto } from './dto/approve-property.dto';
 import { RejectPropertyDto } from './dto/reject-property.dto';
 import { CreatePropertyCommentDto } from './dto/create-property-comment.dto';
+import {
+  AdminPropertyStatsQueryDto,
+  ListAdminPropertiesQueryDto,
+} from './dto/list-admin-properties.query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { Request } from 'express';
@@ -62,6 +67,30 @@ export class PropertiesController {
       throw new ForbiddenException('User not authenticated properly');
     }
     return this.propertiesService.findMyProperties(userId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('admin/stats')
+  adminStats(
+    @Query() query: AdminPropertyStatsQueryDto,
+    @Req() req: RequestWithUser,
+  ) {
+    if (req.user?.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only admins can view property stats');
+    }
+    return this.propertiesService.adminStats(query);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('admin')
+  adminList(
+    @Query() query: ListAdminPropertiesQueryDto,
+    @Req() req: RequestWithUser,
+  ) {
+    if (req.user?.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only admins can list all properties');
+    }
+    return this.propertiesService.adminList(query);
   }
 
   @UseGuards(OptionalJwtAuthGuard)

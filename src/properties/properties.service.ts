@@ -6,10 +6,10 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, Repository, Brackets, SelectQueryBuilder } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import nodemailer from 'nodemailer';
-import { CreatePropertyDto, PropertyStatus } from './dto/create-property.dto';
+import { CreatePropertyDto, PropertyStatus, ListingType } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { ApprovePropertyDto } from './dto/approve-property.dto';
 import { RejectPropertyDto } from './dto/reject-property.dto';
@@ -21,6 +21,26 @@ import { User, UserRole } from '../users/entities/user.entity';
 import { buildPropertyPath } from '../helper/property-slug';
 import { escapeHtmlForEmail } from '../helper/escape-html';
 import { BRAND_COLOR, BRAND_ON_COLOR } from '../helper/email-theme';
+import {
+  AdminPropertySortBy,
+  AdminPropertySortDir,
+  AdminPropertyStatsQueryDto,
+  ListAdminPropertiesQueryDto,
+} from './dto/list-admin-properties.query.dto';
+
+export interface PagedAdminProperties {
+  items: Array<Property & { creator: PropertyUserSummary | null }>;
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface AdminPropertyStatusCounts {
+  pending: number;
+  approved: number;
+  rejected: number;
+  total: number;
+}
 
 interface MailTransporter {
   sendMail(
@@ -495,6 +515,140 @@ View the listing: ${propertyUrl}`,
           },
     );
     return this.attachCreatorsToProperties(properties);
+  }
+
+  private applyAdminPropertyFilters(
+    qb: SelectQueryBuilder<Property>,
+    query: ListAdminPropertiesQueryDto | AdminPropertyStatsQueryDto,
+  ): void {
+    const search = query.q?.trim();
+    if (search) {
+      qb.andWhere(
+        new Brackets((b) => {
+          b.where('p.title LIKE :q', { q: `%${search}%` })
+            .orWhere('p.city LIKE :q', { q: `%${search}%` })
+            .orWhere('p.address LIKE :q', { q: `%${search}%` })
+            .orWhere('p.locality LIKE :q', { q: `%${search}%` })
+            .orWhere('CAST(p.id AS CHAR) LIKE :q', { q: `%${search}%` })
+            .orWhere('CAST(p.assignedAgentId AS CHAR) LIKE :q', {
+              q: `%${search}%`,
+            });
+        }),
+      );
+    }
+
+    if ('status' in query && query.status) {
+      qb.andWhere('p.status = :status', { status: query.status });
+    }
+
+    const city = query.city?.trim();
+    if (city) {
+      qb.andWhere('LOWER(p.city) LIKE LOWER(:city)', { city: `%${city}%` });
+    }
+
+    if (query.listing === 'rent') {
+      qb.andWhere('p.listingType IN (:...rentTypes)', {
+        rentTypes: [ListingType.RENT, ListingType.LEASE],
+      });
+    } else if (query.listing === 'sale') {
+      qb.andWhere('p.listingType = :saleType', { saleType: ListingType.SALE });
+    }
+
+    const propertyType = query.propertyType?.trim();
+    if (propertyType) {
+      qb.andWhere('LOWER(p.propertyType) = LOWER(:propertyType)', {
+        propertyType,
+      });
+    }
+
+    if (query.priceMin != null && Number.isFinite(query.priceMin)) {
+      qb.andWhere('p.price >= :priceMin', { priceMin: query.priceMin });
+    }
+    if (query.priceMax != null && Number.isFinite(query.priceMax)) {
+      qb.andWhere('p.price <= :priceMax', { priceMax: query.priceMax });
+    }
+
+    if (query.assignedAgentId != null && query.assignedAgentId > 0) {
+      qb.andWhere('p.assignedAgentId = :assignedAgentId', {
+        assignedAgentId: query.assignedAgentId,
+      });
+    }
+  }
+
+  private adminSortColumn(sortBy?: AdminPropertySortBy): string {
+    switch (sortBy) {
+      case AdminPropertySortBy.TITLE:
+        return 'p.title';
+      case AdminPropertySortBy.CITY:
+        return 'p.city';
+      case AdminPropertySortBy.LISTING_TYPE:
+        return 'p.listingType';
+      case AdminPropertySortBy.PROPERTY_TYPE:
+        return 'p.propertyType';
+      case AdminPropertySortBy.PRICE:
+        return 'p.price';
+      case AdminPropertySortBy.BEDROOMS:
+        return 'p.bedrooms';
+      case AdminPropertySortBy.BATHROOMS:
+        return 'p.bathrooms';
+      case AdminPropertySortBy.AREA:
+        return 'p.area';
+      case AdminPropertySortBy.STATUS:
+        return 'p.status';
+      case AdminPropertySortBy.ID:
+      default:
+        return 'p.id';
+    }
+  }
+
+  async adminList(
+    query: ListAdminPropertiesQueryDto,
+  ): Promise<PagedAdminProperties> {
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
+    const qb = this.propertyRepository.createQueryBuilder('p');
+    this.applyAdminPropertyFilters(qb, query);
+    const sortCol = this.adminSortColumn(query.sortBy);
+    const sortDir =
+      query.sortDir === AdminPropertySortDir.ASC ? 'ASC' : 'DESC';
+    qb.orderBy(sortCol, sortDir).addOrderBy('p.id', 'DESC');
+    qb.skip((page - 1) * limit).take(limit);
+    const [rows, total] = await qb.getManyAndCount();
+    return {
+      items: await this.attachCreatorsToProperties(rows),
+      total,
+      page,
+      limit,
+    };
+  }
+
+  async adminStats(
+    query: AdminPropertyStatsQueryDto,
+  ): Promise<AdminPropertyStatusCounts> {
+    const qb = this.propertyRepository.createQueryBuilder('p');
+    this.applyAdminPropertyFilters(qb, query);
+    qb.select('p.status', 'status').addSelect('COUNT(*)', 'count').groupBy(
+      'p.status',
+    );
+    const rows = (await qb.getRawMany()) as Array<{
+      status: PropertyStatus;
+      count: string;
+    }>;
+    let pending = 0;
+    let approved = 0;
+    let rejected = 0;
+    for (const row of rows) {
+      const n = Number(row.count) || 0;
+      if (row.status === PropertyStatus.PENDING) pending = n;
+      else if (row.status === PropertyStatus.APPROVED) approved = n;
+      else if (row.status === PropertyStatus.REJECTED) rejected = n;
+    }
+    return {
+      pending,
+      approved,
+      rejected,
+      total: pending + approved + rejected,
+    };
   }
 
   /** Listings where `assignedAgentId` is one of the given agent user ids (explicit assignment). */
