@@ -8,7 +8,11 @@ const LOCAL_DEV_ORIGINS = [
   'http://localhost:3000',
   'http://127.0.0.1:5173',
   'http://127.0.0.1:3000',
-  'http://187.127.133.141:3000'
+  'http://187.127.133.141:3000',
+  'http://findmypropertys.com',
+  'http://www.findmypropertys.com',
+  'https://findmypropertys.com',
+  'https://www.findmypropertys.com',
 ];
 
 function getAllowedOrigins(): string[] {
