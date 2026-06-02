@@ -406,7 +406,7 @@ export class AuthService {
     return this.buildAuthResponse(user);
   }
 
-  /** Shared path / TTL / `SameSite` for auth cookies (refresh + role). */
+  /** When true, frontend + API share a parent domain (e.g. www + api); set `COOKIE_DOMAIN`. */
   private isSameDomainDeployment(): boolean {
     const raw = this.configService.get<string>('IS_SAME_DOMAIN');
     if (raw == null || raw.trim() === '') return false;
@@ -414,37 +414,49 @@ export class AuthService {
     return normalized === 'true' || normalized === '1' || normalized === 'yes';
   }
 
+  /**
+   * Parent domain for `Set-Cookie` when `IS_SAME_DOMAIN=true` (e.g. `.findmypropertys.com`
+   * so `fmp-rt` is visible on both `www` and `api` subdomains).
+   */
+  private getCookieDomain(): string | undefined {
+    if (!this.isSameDomainDeployment()) return undefined;
+
+    const configured = this.configService.get<string>('COOKIE_DOMAIN')?.trim();
+    if (!configured) {
+      this.logger.warn(
+        'IS_SAME_DOMAIN=true but COOKIE_DOMAIN is unset — cookies stay host-only on the API host',
+      );
+      return undefined;
+    }
+
+    if (/localhost|127\.0\.0\.1/i.test(configured)) {
+      return undefined;
+    }
+
+    return configured.startsWith('.') ? configured : `.${configured}`;
+  }
+
   private getAuthCookieBaseOptions(): {
     secure: boolean;
     sameSite: 'lax' | 'strict' | 'none';
     maxAge: number;
     path: string;
+    domain?: string;
   } {
     const isProd = this.configService.get<string>('NODE_ENV') === 'production';
-
-    if (this.isSameDomainDeployment()) {
-      // Frontend and API share a site (same origin or reverse-proxied). First-party
-      // cookies work with Lax; Secure only in production over HTTPS.
-      return {
-        secure: isProd,
-        sameSite: 'lax',
-        maxAge: this.getRefreshCookieMaxAgeMs(),
-        path: '/',
-      };
-    }
-
-    // Cross-origin (e.g. Vercel app + separate API host): browsers require
-    // SameSite=None and Secure for credentialed cross-site cookies.
     const raw = (
-      this.configService.get<string>('REFRESH_COOKIE_SAME_SITE') || 'none'
+      this.configService.get<string>('REFRESH_COOKIE_SAME_SITE') || 'lax'
     ).toLowerCase();
     const sameSite: 'lax' | 'strict' | 'none' =
-      raw === 'lax' || raw === 'strict' ? raw : 'none';
+      raw === 'none' || raw === 'strict' ? raw : 'lax';
+    const domain = this.getCookieDomain();
+
     return {
       secure: isProd || sameSite === 'none',
       sameSite,
       maxAge: this.getRefreshCookieMaxAgeMs(),
       path: '/',
+      ...(domain ? { domain } : {}),
     };
   }
 
@@ -455,6 +467,7 @@ export class AuthService {
     sameSite: 'lax' | 'strict' | 'none';
     maxAge: number;
     path: string;
+    domain?: string;
   } {
     return {
       ...this.getAuthCookieBaseOptions(),
@@ -472,6 +485,7 @@ export class AuthService {
     sameSite: 'lax' | 'strict' | 'none';
     maxAge: number;
     path: string;
+    domain?: string;
   } {
     return {
       ...this.getAuthCookieBaseOptions(),
@@ -484,6 +498,7 @@ export class AuthService {
     httpOnly: boolean;
     secure: boolean;
     sameSite: 'lax' | 'strict' | 'none';
+    domain?: string;
   } {
     const base = this.getAuthCookieBaseOptions();
     return {
@@ -491,6 +506,7 @@ export class AuthService {
       httpOnly: true,
       secure: base.secure,
       sameSite: base.sameSite,
+      ...(base.domain ? { domain: base.domain } : {}),
     };
   }
 
@@ -499,6 +515,7 @@ export class AuthService {
     httpOnly: boolean;
     secure: boolean;
     sameSite: 'lax' | 'strict' | 'none';
+    domain?: string;
   } {
     const base = this.getAuthCookieBaseOptions();
     return {
@@ -506,6 +523,7 @@ export class AuthService {
       httpOnly: false,
       secure: base.secure,
       sameSite: base.sameSite,
+      ...(base.domain ? { domain: base.domain } : {}),
     };
   }
 
