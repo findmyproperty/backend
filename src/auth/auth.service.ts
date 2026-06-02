@@ -407,6 +407,13 @@ export class AuthService {
   }
 
   /** Shared path / TTL / `SameSite` for auth cookies (refresh + role). */
+  private isSameDomainDeployment(): boolean {
+    const raw = this.configService.get<string>('IS_SAME_DOMAIN');
+    if (raw == null || raw.trim() === '') return false;
+    const normalized = raw.trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' || normalized === 'yes';
+  }
+
   private getAuthCookieBaseOptions(): {
     secure: boolean;
     sameSite: 'lax' | 'strict' | 'none';
@@ -414,11 +421,25 @@ export class AuthService {
     path: string;
   } {
     const isProd = this.configService.get<string>('NODE_ENV') === 'production';
+
+    if (this.isSameDomainDeployment()) {
+      // Frontend and API share a site (same origin or reverse-proxied). First-party
+      // cookies work with Lax; Secure only in production over HTTPS.
+      return {
+        secure: isProd,
+        sameSite: 'lax',
+        maxAge: this.getRefreshCookieMaxAgeMs(),
+        path: '/',
+      };
+    }
+
+    // Cross-origin (e.g. Vercel app + separate API host): browsers require
+    // SameSite=None and Secure for credentialed cross-site cookies.
     const raw = (
-      this.configService.get<string>('REFRESH_COOKIE_SAME_SITE') || 'lax'
+      this.configService.get<string>('REFRESH_COOKIE_SAME_SITE') || 'none'
     ).toLowerCase();
     const sameSite: 'lax' | 'strict' | 'none' =
-      raw === 'none' || raw === 'strict' ? raw : 'lax';
+      raw === 'lax' || raw === 'strict' ? raw : 'none';
     return {
       secure: isProd || sameSite === 'none',
       sameSite,
@@ -458,8 +479,19 @@ export class AuthService {
     };
   }
 
-  getClearRefreshCookieOptions(): { path: string; httpOnly: boolean } {
-    return { path: '/', httpOnly: true };
+  getClearRefreshCookieOptions(): {
+    path: string;
+    httpOnly: boolean;
+    secure: boolean;
+    sameSite: 'lax' | 'strict' | 'none';
+  } {
+    const base = this.getAuthCookieBaseOptions();
+    return {
+      path: base.path,
+      httpOnly: true,
+      secure: base.secure,
+      sameSite: base.sameSite,
+    };
   }
 
   getClearRoleCookieOptions(): {
