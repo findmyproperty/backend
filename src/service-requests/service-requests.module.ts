@@ -7,9 +7,14 @@ import { ServiceRequestsAdminController } from './service-requests.admin.control
 import { ServiceRequestsService } from './service-requests.service';
 import { ServiceRequestsNotifier } from './service-requests.notifier';
 import { DistanceService } from './distance.service';
+import { VendorLeadsModule } from '../vendor-leads/vendor-leads.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ServiceRequest]), UsersModule],
+  imports: [
+    TypeOrmModule.forFeature([ServiceRequest]),
+    UsersModule,
+    VendorLeadsModule,
+  ],
   controllers: [ServiceRequestsController, ServiceRequestsAdminController],
   providers: [ServiceRequestsService, ServiceRequestsNotifier, DistanceService],
   exports: [ServiceRequestsService],

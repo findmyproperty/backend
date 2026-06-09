@@ -80,6 +80,10 @@ export class CreateUserDto {
   @IsOptional()
   onboardingCompleted?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
+
   @IsEnum(UserRole)
   @IsOptional()
   role?: UserRole = UserRole.TENANT;

@@ -8,6 +8,8 @@ import {
   MaxLength,
   IsIn,
   ValidateIf,
+  IsNumber,
+  Min,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 
@@ -84,4 +86,9 @@ export class CreateSettingDto {
   @IsOptional()
   @IsBoolean()
   twoFactorAuthEnforced?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  vendorCommissionPercent?: number;
 }

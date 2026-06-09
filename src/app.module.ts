@@ -20,6 +20,17 @@ import { PropertyLead } from './leads/entities/property-lead.entity';
 import { PropertyComment } from './properties/entities/property-comment.entity';
 import { ServiceRequestsModule } from './service-requests/service-requests.module';
 import { ServiceRequest } from './service-requests/entities/service-request.entity';
+import { VendorProfile } from './vendors/entities/vendor-profile.entity';
+import { VendorLead } from './vendor-leads/entities/vendor-lead.entity';
+import { VendorLeadUpdate } from './vendor-leads/entities/vendor-lead-update.entity';
+import { VendorLedgerEntry } from './vendor-wallet/entities/vendor-ledger-entry.entity';
+import { VendorsModule } from './vendors/vendors.module';
+import { VendorLeadsModule } from './vendor-leads/vendor-leads.module';
+import { VendorWalletModule } from './vendor-wallet/vendor-wallet.module';
+import { Notification } from './notifications/entities/notification.entity';
+import { NotificationsModule } from './notifications/notifications.module';
+import { SupportTicket } from './support-tickets/entities/support-ticket.entity';
+import { SupportTicketsModule } from './support-tickets/support-tickets.module';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -65,6 +76,12 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
             PropertyLead,
             PropertyComment,
             ServiceRequest,
+            VendorProfile,
+            VendorLead,
+            VendorLeadUpdate,
+            VendorLedgerEntry,
+            Notification,
+            SupportTicket,
           ],
           synchronize: true, // Only for development!
         };
@@ -81,6 +98,11 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
     AdminModule,
     ContactModule,
     ServiceRequestsModule,
+    VendorsModule,
+    VendorLeadsModule,
+    VendorWalletModule,
+    NotificationsModule,
+    SupportTicketsModule,
   ],
   providers: [
     {

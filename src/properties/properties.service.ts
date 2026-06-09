@@ -693,6 +693,8 @@ View the listing: ${propertyUrl}`,
   > {
     const property = await this.findOne(id);
     const isAdmin = options?.viewerRole === UserRole.ADMIN;
+    console.log('property', property);
+    console.log('isAdmin', options?.viewerRole);
     if (property.status !== PropertyStatus.APPROVED && !isAdmin) {
       throw new NotFoundException(`Property with ID ${id} not found`);
     }

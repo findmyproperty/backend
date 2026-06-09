@@ -122,6 +122,7 @@ export class PropertiesController {
   @UseGuards(OptionalJwtAuthGuard)
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
+    console.log('req.user?.role', req.user);
     return this.propertiesService.findOneWithAgent(id, {
       viewerRole: req.user?.role,
     });

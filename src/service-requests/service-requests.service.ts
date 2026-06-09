@@ -18,6 +18,7 @@ import { UpdateServiceRequestDto } from './dto/update-service-request.dto';
 import { ListServiceRequestsQueryDto } from './dto/list-service-requests.query.dto';
 import { ServiceRequestsNotifier } from './service-requests.notifier';
 import { DistanceService } from './distance.service';
+import { VendorLeadsService } from '../vendor-leads/vendor-leads.service';
 
 export interface ServiceRequestResponse {
   id: number;
@@ -35,6 +36,7 @@ export interface ServiceRequestResponse {
   details: ServiceRequest['details'];
   internalNotes: string | null;
   assignedAdminId: number | null;
+  assignedVendorUserId: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -53,6 +55,7 @@ export class ServiceRequestsService {
     private readonly repo: Repository<ServiceRequest>,
     private readonly notifier: ServiceRequestsNotifier,
     private readonly distance: DistanceService,
+    private readonly vendorLeadsService: VendorLeadsService,
   ) {}
 
   async createPackersMovers(
@@ -171,8 +174,17 @@ export class ServiceRequestsService {
     if (dto.internalNotes !== undefined) row.internalNotes = dto.internalNotes;
     if (dto.assignedAdminId !== undefined)
       row.assignedAdminId = dto.assignedAdminId ?? null;
+    if (dto.assignedVendorUserId !== undefined) {
+      row.assignedVendorUserId = dto.assignedVendorUserId ?? null;
+    }
 
     const saved = await this.repo.save(row);
+    if (saved.assignedVendorUserId != null) {
+      await this.vendorLeadsService.createFromServiceRequest(
+        saved.id,
+        saved.assignedVendorUserId,
+      );
+    }
     if (dto.status !== undefined && previousStatus !== saved.status) {
       this.notifier.notifyStatusChange(saved, previousStatus);
     }
@@ -263,6 +275,7 @@ export class ServiceRequestsService {
       details: r.details,
       internalNotes: r.internalNotes,
       assignedAdminId: r.assignedAdminId,
+      assignedVendorUserId: r.assignedVendorUserId,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
     };

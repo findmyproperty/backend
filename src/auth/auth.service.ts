@@ -1,11 +1,13 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
   NotFoundException,
   UnauthorizedException,
+  forwardRef,
 } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
@@ -18,6 +20,7 @@ import { User, UserRole } from '../users/entities/user.entity';
 import { parseDurationToSeconds } from '../helper/duration';
 import { VerifyPhoneOtpDto } from './dto/verify-phone-otp.dto';
 import twilio, { type Twilio } from 'twilio';
+import { VendorsService } from '../vendors/vendors.service';
 import { BRAND_COLOR, BRAND_ON_COLOR } from '../helper/email-theme';
 
 /** Fallback OTP when Twilio is not configured (e.g. local dev). */
@@ -51,6 +54,8 @@ export class AuthService {
     private usersService: UsersService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    @Inject(forwardRef(() => VendorsService))
+    private vendorsService: VendorsService,
   ) {}
 
   async requestPhoneOtp(phone: string) {
@@ -205,10 +210,19 @@ export class AuthService {
         onboardingCompleted: false,
       });
     } else {
-      user = await this.usersService.update(user.id, {
+      const updates: UpdateUserDto = {
         isPhoneVerified: true,
         name: body.name?.trim() || user.name || undefined,
-      });
+      };
+      if (body.role && !user.role) {
+        updates.role = body.role;
+      }
+      user = await this.usersService.update(user.id, updates);
+    }
+
+    const effectiveRole = user.role ?? body.role ?? UserRole.TENANT;
+    if (effectiveRole === UserRole.VENDOR) {
+      await this.vendorsService.ensureProfileForUser(user.id);
     }
 
     return this.buildAuthResponse(user);
@@ -794,7 +808,8 @@ export class AuthService {
     if (
       normalized === 'admin' ||
       normalized === 'agent' ||
-      normalized === 'tenant'
+      normalized === 'tenant' ||
+      normalized === 'vendor'
     ) {
       return normalized;
     }

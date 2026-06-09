@@ -66,6 +66,15 @@ export class Setting {
   @Column({ name: 'two_factor_auth_enforced', type: 'boolean', default: true })
   twoFactorAuthEnforced: boolean;
 
+  @Column({
+    name: 'vendor_commission_percent',
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    default: 10,
+  })
+  vendorCommissionPercent: number;
+
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 }

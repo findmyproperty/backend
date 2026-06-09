@@ -10,6 +10,7 @@ export enum UserRole {
   ADMIN = 'admin',
   AGENT = 'agent',
   TENANT = 'tenant',
+  VENDOR = 'vendor',
 }
 
 @Entity()
@@ -71,6 +72,10 @@ export class User {
 
   @Column({ default: false })
   onboardingCompleted: boolean;
+
+  /** When false, vendor (and others) cannot access protected vendor flows. */
+  @Column({ default: true })
+  isActive: boolean;
 
   @Column({ type: 'enum', enum: UserRole, default: UserRole.TENANT })
   role: UserRole;

@@ -22,4 +22,9 @@ export class UpdateServiceRequestDto {
   @IsInt()
   @Min(1)
   assignedAdminId?: number | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  assignedVendorUserId?: number | null;
 }

@@ -132,6 +132,10 @@ export class ServiceRequest {
   @Column({ type: 'int', nullable: true })
   assignedAdminId: number | null;
 
+  @Index()
+  @Column({ type: 'int', nullable: true })
+  assignedVendorUserId: number | null;
+
   @CreateDateColumn()
   createdAt: Date;
 
