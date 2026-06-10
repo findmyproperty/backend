@@ -67,19 +67,7 @@ export class AuthService {
       );
     }
 
-    const templateSid = this.configService.get<string>(
-      'TWILIO_VERIFY_TEMPLATE_SID',
-    );
-    if (!templateSid) {
-      throw new BadRequestException(
-        'TWILIO_VERIFY_TEMPLATE_SID must be configured.',
-      );
-    }
-    if (!/^HJ[0-9a-fA-F]{32}$/.test(templateSid)) {
-      throw new BadRequestException(
-        'TWILIO_VERIFY_TEMPLATE_SID is invalid. Expected a Verify Template SID starting with HJ.',
-      );
-    }
+    const templateSid = 'HX7bac3780c16f0225c0cc2e9f347ad288';
 
     try {
       const code = String(randomInt(100000, 1000000));
