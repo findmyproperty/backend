@@ -20,9 +20,6 @@ import { VerifyPhoneOtpDto } from './dto/verify-phone-otp.dto';
 import twilio, { type Twilio } from 'twilio';
 import { BRAND_COLOR, BRAND_ON_COLOR } from '../helper/email-theme';
 
-/** Fallback OTP when Twilio is not configured (e.g. local dev). */
-const FALLBACK_OTP_CODE = '456789';
-
 /** Mail transporter shape used here to avoid nodemailer typings issues. */
 interface MailTransporter {
   sendMail(
@@ -65,22 +62,27 @@ export class AuthService {
       'TWILIO_VERIFY_SERVICE_SID',
     );
     if (!verifyServiceSid) {
-      this.logger.warn(
-        'Twilio not configured; using fallback OTP. Use code 456789 to verify.',
+      throw new BadRequestException(
+        'TWILIO_VERIFY_SERVICE_SID must be configured.',
       );
-      return {
-        message: 'OTP sent successfully',
-        status: 'fallback',
-      };
+    }
+
+    const templateSid = this.configService.get<string>(
+      'TWILIO_VERIFY_TEMPLATE_SID',
+    );
+    if (!templateSid) {
+      throw new BadRequestException(
+        'TWILIO_VERIFY_TEMPLATE_SID must be configured.',
+      );
+    }
+    if (!/^HJ[0-9a-fA-F]{32}$/.test(templateSid)) {
+      throw new BadRequestException(
+        'TWILIO_VERIFY_TEMPLATE_SID is invalid. Expected a Verify Template SID starting with HJ.',
+      );
     }
 
     try {
-      // Pre-generate a code so we can attach it to a template variable (variable 1).
       const code = String(randomInt(100000, 1000000));
-      const templateSid =
-        this.configService.get<string>('TWILIO_VERIFY_TEMPLATE_SID') ||
-        'HX7bac3780c16f0225c0cc2e9f347ad288';
-      // Use the template variable name `otp` as shown in your Twilio template
       const templateCustomSubstitutions = JSON.stringify({ otp: code });
 
       const verification = await this.getTwilioClient()
@@ -88,7 +90,6 @@ export class AuthService {
         .verifications.create({
           to: normalizedPhone,
           channel: 'sms',
-          // Use a pre-generated code so we can map it into the template variable.
           customCode: code,
           templateSid,
           templateCustomSubstitutions,
@@ -99,55 +100,23 @@ export class AuthService {
         status: verification.status,
       };
     } catch (error) {
-      let twilioError = error as {
+      const twilioError = error as {
         code?: number;
         message?: string;
         status?: number;
         moreInfo?: string;
       };
 
-      // If Twilio rejects the TemplateSid, retry without template fields as a fallback.
-      if (
-        (twilioError.message ?? '').includes('TemplateSid') ||
-        (twilioError.moreInfo ?? '').includes('TemplateSid')
-      ) {
-        try {
-          const verification = await this.getTwilioClient()
-            .verify.v2.services(verifyServiceSid)
-            .verifications.create({
-              to: normalizedPhone,
-              channel: 'sms',
-            });
-          return { message: 'OTP sent (template fallback)', status: verification.status };
-        } catch (err2) {
-          twilioError = err2 as typeof twilioError;
-        }
-      }
-
       this.logger.error(
         `Twilio OTP send failed for ${normalizedPhone}. code=${twilioError.code ?? 'unknown'} status=${twilioError.status ?? 'unknown'} message=${twilioError.message ?? 'unknown'}`,
       );
 
-      const isProd = this.configService.get<string>('NODE_ENV') === 'production';
-      if (!isProd) {
-        this.logger.warn('Fallback OTP sent. Check phone number and Twilio configuration.');
-        return {
-          message: 'Fallback OTP sent. Check phone number and Twilio configuration.',
-          status: 'warning',
-          code: FALLBACK_OTP_CODE,
-        };
-      }
-
       throw new BadRequestException({
         message: 'Failed to send OTP. Check phone number and Twilio configuration.',
-        ...(isProd
-          ? {}
-          : {
-              twilioCode: twilioError.code ?? null,
-              twilioStatus: twilioError.status ?? null,
-              twilioMessage: twilioError.message ?? null,
-              twilioMoreInfo: twilioError.moreInfo ?? null,
-            }),
+        twilioCode: twilioError.code ?? null,
+        twilioStatus: twilioError.status ?? null,
+        twilioMessage: twilioError.message ?? null,
+        twilioMoreInfo: twilioError.moreInfo ?? null,
       });
     }
   }
@@ -168,57 +137,43 @@ export class AuthService {
     const verifyServiceSid = this.configService.get<string>(
       'TWILIO_VERIFY_SERVICE_SID',
     );
-    const useFallbackOtp = !verifyServiceSid;
-    if (useFallbackOtp) {
-      if (code !== FALLBACK_OTP_CODE) {
+    if (!verifyServiceSid) {
+      throw new BadRequestException(
+        'TWILIO_VERIFY_SERVICE_SID must be configured.',
+      );
+    }
+
+    try {
+      const verificationCheck = await this.getTwilioClient()
+        .verify.v2.services(verifyServiceSid)
+        .verificationChecks.create({
+          to: normalizedPhone,
+          code,
+        });
+
+      if (verificationCheck.status !== 'approved') {
         throw new UnauthorizedException('Invalid OTP code.');
       }
-      // Fallback OTP accepted; continue to find/create user and issue tokens
-    } else if (code === FALLBACK_OTP_CODE) {
-      // Twilio is configured but user sent fallback code — still accept it for dev convenience
-      this.logger.warn(
-        `Fallback OTP ${FALLBACK_OTP_CODE} accepted for ${normalizedPhone}.`,
-      );
-      // Continue to find/create user and issue tokens
-    } else {
-      try {
-        const verificationCheck = await this.getTwilioClient()
-          .verify.v2.services(verifyServiceSid)
-          .verificationChecks.create({
-            to: normalizedPhone,
-            code,
-          });
-
-        if (verificationCheck.status !== 'approved') {
-          throw new UnauthorizedException('Invalid OTP code.');
-        }
-      } catch (error) {
-        if (error instanceof UnauthorizedException) {
-          throw error;
-        }
-        const twilioError = error as {
-          code?: number;
-          message?: string;
-          status?: number;
-          moreInfo?: string;
-        };
-        this.logger.error(
-          `Twilio OTP verify failed for ${normalizedPhone}. code=${twilioError.code ?? 'unknown'} status=${twilioError.status ?? 'unknown'} message=${twilioError.message ?? 'unknown'}`,
-        );
-        const isProd =
-          this.configService.get<string>('NODE_ENV') === 'production';
-        throw new BadRequestException({
-          message: 'OTP verification failed.',
-          ...(isProd
-            ? {}
-            : {
-                twilioCode: twilioError.code ?? null,
-                twilioStatus: twilioError.status ?? null,
-                twilioMessage: twilioError.message ?? null,
-                twilioMoreInfo: twilioError.moreInfo ?? null,
-              }),
-        });
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
       }
+      const twilioError = error as {
+        code?: number;
+        message?: string;
+        status?: number;
+        moreInfo?: string;
+      };
+      this.logger.error(
+        `Twilio OTP verify failed for ${normalizedPhone}. code=${twilioError.code ?? 'unknown'} status=${twilioError.status ?? 'unknown'} message=${twilioError.message ?? 'unknown'}`,
+      );
+      throw new BadRequestException({
+        message: 'OTP verification failed.',
+        twilioCode: twilioError.code ?? null,
+        twilioStatus: twilioError.status ?? null,
+        twilioMessage: twilioError.message ?? null,
+        twilioMoreInfo: twilioError.moreInfo ?? null,
+      });
     }
 
     let user = await this.usersService.findByPhone(normalizedPhone);
