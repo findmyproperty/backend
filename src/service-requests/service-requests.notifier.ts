@@ -5,6 +5,7 @@ import { UsersService } from '../users/users.service';
 import { escapeHtmlForEmail } from '../helper/escape-html';
 import { BRAND_COLOR } from '../helper/email-theme';
 import {
+  EventManagementDetails,
   PackersMoversDetails,
   PaintingCleaningDetails,
   ServiceRequest,
@@ -22,6 +23,7 @@ interface MailTransporter {
 const SERVICE_LABELS: Record<ServiceType, string> = {
   [ServiceType.PACKERS_MOVERS]: 'Packers & Movers',
   [ServiceType.PAINTING_CLEANING]: 'Painting & Cleaning',
+  [ServiceType.EVENT_MANAGEMENT]: 'Event Management',
 };
 
 /**
@@ -210,6 +212,11 @@ export class ServiceRequestsNotifier {
         request.details as PaintingCleaningDetails,
       );
     }
+    if (request.serviceType === ServiceType.EVENT_MANAGEMENT) {
+      return this.buildEventManagementHtml(
+        request.details as EventManagementDetails,
+      );
+    }
     return '';
   }
 
@@ -335,6 +342,71 @@ export class ServiceRequestsNotifier {
     `;
   }
 
+  private buildEventManagementHtml(d: EventManagementDetails): string {
+    const eventTypeLabel: Record<string, string> = {
+      birthday: 'Birthday',
+      wedding: 'Wedding',
+      baby_shower: 'Baby shower',
+      corporate: 'Corporate event',
+    };
+    const venueTypeLabel: Record<string, string> = {
+      home: 'Home',
+      banquet: 'Banquet hall',
+      hotel: 'Hotel',
+      outdoor: 'Outdoor',
+      office: 'Office',
+      other: 'Other',
+    };
+    const serviceLabel: Record<string, string> = {
+      decoration: 'Decoration',
+      catering: 'Catering',
+      photography: 'Photography',
+      music: 'Music / DJ',
+      hosting: 'Host / anchor',
+      return_gifts: 'Return gifts',
+      venue_booking: 'Venue booking',
+    };
+
+    const metaRows: Array<[string, string]> = [
+      ['Event type', eventTypeLabel[d.eventType] ?? d.eventType],
+      ['Venue type', venueTypeLabel[d.venueType] ?? d.venueType],
+      ['Guests', String(d.guestCount)],
+      [
+        'Services',
+        (d.services ?? []).map((s) => serviceLabel[s] ?? s).join(', '),
+      ],
+    ];
+    if (d.budgetRange) metaRows.push(['Budget', d.budgetRange]);
+    if (d.themeOrStyle) metaRows.push(['Theme / style', d.themeOrStyle]);
+
+    const locHtml =
+      d.location && d.location.lat && d.location.lng
+        ? this.buildStopCardHtml('Event location', d.location, BRAND_COLOR)
+        : '';
+
+    const notesHtml = d.notes
+      ? `<div style="margin-top:12px; padding:10px 12px; border:1px solid #eee; background:#fafafa; border-radius:6px;">
+          <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#6b7280; margin-bottom:4px;">Customer notes</div>
+          <div style="white-space:pre-wrap;">${escapeHtmlForEmail(d.notes)}</div>
+        </div>`
+      : '';
+
+    return `
+      <h3 style="margin:20px 0 8px; font-size:14px; text-transform:uppercase; letter-spacing:0.5px; color:#6b7280;">Event details</h3>
+      <table cellpadding="6" cellspacing="0" style="border-collapse:collapse; width:100%;">
+        ${metaRows
+          .map(
+            ([k, v]) =>
+              `<tr><td style="border:1px solid #eee; width:160px;"><b>${escapeHtmlForEmail(k)}</b></td><td style="border:1px solid #eee;">${escapeHtmlForEmail(v)}</td></tr>`,
+          )
+          .join('')}
+      </table>
+      ${locHtml ? '<h3 style="margin:20px 0 8px; font-size:14px; text-transform:uppercase; letter-spacing:0.5px; color:#6b7280;">Location</h3>' : ''}
+      ${locHtml}
+      ${notesHtml}
+    `;
+  }
+
   private buildStopCardHtml(
     title: string,
     stop: Stop,
@@ -437,6 +509,21 @@ export class ServiceRequestsNotifier {
         lines.push(`  Map: ${this.mapLinkFor(pc.location)}`);
       }
       if (pc.notes) lines.push(``, `Customer notes:`, pc.notes);
+    } else if (request.serviceType === ServiceType.EVENT_MANAGEMENT && d) {
+      const em = d as EventManagementDetails;
+      lines.push(``, `-- Event details --`);
+      lines.push(`Event type: ${em.eventType}`);
+      lines.push(`Venue type: ${em.venueType}`);
+      lines.push(`Guests: ${em.guestCount}`);
+      lines.push(`Services: ${(em.services ?? []).join(', ')}`);
+      if (em.budgetRange) lines.push(`Budget: ${em.budgetRange}`);
+      if (em.themeOrStyle) lines.push(`Theme / style: ${em.themeOrStyle}`);
+      if (em.location) {
+        lines.push(``, `Event location: ${em.location.label}`);
+        if (em.location.notes) lines.push(`  Notes: ${em.location.notes}`);
+        lines.push(`  Map: ${this.mapLinkFor(em.location)}`);
+      }
+      if (em.notes) lines.push(``, `Customer notes:`, em.notes);
     }
     return lines.join('\n');
   }

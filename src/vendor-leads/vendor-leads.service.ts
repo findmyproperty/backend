@@ -6,10 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import {
-  VendorLead,
-  VendorLeadStatus,
-} from './entities/vendor-lead.entity';
+import { VendorLead, VendorLeadStatus } from './entities/vendor-lead.entity';
 import { VendorLeadUpdate } from './entities/vendor-lead-update.entity';
 import { PatchVendorLeadDto } from './dto/patch-vendor-lead.dto';
 import { CreateVendorLeadUpdateDto } from './dto/create-vendor-lead-update.dto';
@@ -20,7 +17,10 @@ import { VendorsService } from '../vendors/vendors.service';
 import { VendorWalletService } from '../vendor-wallet/vendor-wallet.service';
 import { UsersService } from '../users/users.service';
 import { UserRole } from '../users/entities/user.entity';
-import { ServiceRequest } from '../service-requests/entities/service-request.entity';
+import {
+  ServiceRequest,
+  ServiceRequestStatus,
+} from '../service-requests/entities/service-request.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
 
@@ -111,7 +111,8 @@ export class VendorLeadsService {
   ): Promise<VendorLeadResponse> {
     const lead = await this.getOwnedLead(id, vendorUserId);
     const user = await this.usersService.findOne(vendorUserId);
-    const profile = await this.vendorsService.ensureProfileForUser(vendorUserId);
+    const profile =
+      await this.vendorsService.ensureProfileForUser(vendorUserId);
 
     if (!dto.status) {
       throw new BadRequestException('status is required');
@@ -122,7 +123,9 @@ export class VendorLeadsService {
       dto.status === VendorLeadStatus.REJECTED
     ) {
       if (lead.status !== VendorLeadStatus.NEW) {
-        throw new BadRequestException('Only new leads can be accepted or rejected');
+        throw new BadRequestException(
+          'Only new leads can be accepted or rejected',
+        );
       }
       if (dto.status === VendorLeadStatus.ACCEPTED) {
         this.vendorsService.assertVendorCanOperate(profile, user);
@@ -145,6 +148,7 @@ export class VendorLeadsService {
     const prev = lead.status;
     lead.status = dto.status;
     const saved = await this.leadRepo.save(lead);
+    await this.syncServiceRequestStatus(saved);
     if (prev !== saved.status) {
       await this.notifyLead(
         vendorUserId,
@@ -178,7 +182,8 @@ export class VendorLeadsService {
     const saved = await this.updateRepo.save(row);
     if (lead.status === VendorLeadStatus.ACCEPTED) {
       lead.status = VendorLeadStatus.IN_PROGRESS;
-      await this.leadRepo.save(lead);
+      const savedLead = await this.leadRepo.save(lead);
+      await this.syncServiceRequestStatus(savedLead);
     }
     return this.mapUpdate(saved);
   }
@@ -207,7 +212,9 @@ export class VendorLeadsService {
     };
   }
 
-  async adminCreate(dto: AdminCreateVendorLeadDto): Promise<VendorLeadResponse> {
+  async adminCreate(
+    dto: AdminCreateVendorLeadDto,
+  ): Promise<VendorLeadResponse> {
     const vendor = await this.usersService.findOne(dto.vendorUserId);
     if (vendor.role !== UserRole.VENDOR) {
       throw new BadRequestException('User is not a vendor');
@@ -254,6 +261,7 @@ export class VendorLeadsService {
       lead.jobAmount = dto.jobAmount;
     }
     const saved = await this.leadRepo.save(lead);
+    await this.syncServiceRequestStatus(saved);
 
     if (
       saved.status === VendorLeadStatus.COMPLETED &&
@@ -275,9 +283,13 @@ export class VendorLeadsService {
     serviceRequestId: number,
     vendorUserId: number,
   ): Promise<VendorLeadResponse> {
-    const sr = await this.serviceRequestRepo.findOneBy({ id: serviceRequestId });
+    const sr = await this.serviceRequestRepo.findOneBy({
+      id: serviceRequestId,
+    });
     if (!sr) {
-      throw new NotFoundException(`Service request ${serviceRequestId} not found`);
+      throw new NotFoundException(
+        `Service request ${serviceRequestId} not found`,
+      );
     }
     const existing = await this.leadRepo.findOne({
       where: { serviceRequestId, vendorUserId },
@@ -303,6 +315,7 @@ export class VendorLeadsService {
       commissionPercent,
     });
     const saved = await this.leadRepo.save(lead);
+    await this.syncServiceRequestStatus(saved);
     await this.notifyLead(
       vendorUserId,
       NotificationType.VENDOR_LEAD_ASSIGNED,
@@ -325,6 +338,47 @@ export class VendorLeadsService {
       throw new ForbiddenException('Not your lead');
     }
     return lead;
+  }
+
+  private async syncServiceRequestStatus(lead: VendorLead): Promise<void> {
+    if (lead.serviceRequestId == null) return;
+
+    const serviceRequest = await this.serviceRequestRepo.findOneBy({
+      id: lead.serviceRequestId,
+    });
+    if (!serviceRequest) return;
+
+    const nextStatus = this.serviceRequestStatusForLead(lead.status);
+    const shouldClearAssignedVendor =
+      lead.status === VendorLeadStatus.REJECTED &&
+      serviceRequest.assignedVendorUserId === lead.vendorUserId;
+    if (serviceRequest.status === nextStatus && !shouldClearAssignedVendor) {
+      return;
+    }
+
+    serviceRequest.status = nextStatus;
+    if (shouldClearAssignedVendor) {
+      serviceRequest.assignedVendorUserId = null;
+    }
+    await this.serviceRequestRepo.save(serviceRequest);
+  }
+
+  private serviceRequestStatusForLead(
+    status: VendorLeadStatus,
+  ): ServiceRequestStatus {
+    if (status === VendorLeadStatus.COMPLETED) {
+      return ServiceRequestStatus.COMPLETED;
+    }
+    if (
+      status === VendorLeadStatus.ACCEPTED ||
+      status === VendorLeadStatus.IN_PROGRESS
+    ) {
+      return ServiceRequestStatus.SCHEDULED;
+    }
+    if (status === VendorLeadStatus.REJECTED) {
+      return ServiceRequestStatus.NEW;
+    }
+    return ServiceRequestStatus.CONTACTED;
   }
 
   private mapLead(lead: VendorLead): VendorLeadResponse {
