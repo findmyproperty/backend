@@ -75,13 +75,24 @@ export class AuthService {
     }
 
     try {
+      // Pre-generate a code so we can attach it to a template variable (variable 1).
+      const code = String(randomInt(100000, 1000000));
+      const templateSid =
+        this.configService.get<string>('TWILIO_VERIFY_TEMPLATE_SID') ||
+        'HX7bac3780c16f0225c0cc2e9f347ad288';
+      const templateCustomSubstitutions = JSON.stringify({ '1': code });
+
       const verification = await this.getTwilioClient()
         .verify.v2.services(verifyServiceSid)
         .verifications.create({
           to: normalizedPhone,
           channel: 'sms',
+          // Use a pre-generated code so we can map it into the template variable.
+          customCode: code,
+          templateSid,
+          templateCustomSubstitutions,
         });
-      
+
       return {
         message: 'OTP sent successfully',
         status: verification.status,
