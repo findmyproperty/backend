@@ -80,7 +80,8 @@ export class AuthService {
       const templateSid =
         this.configService.get<string>('TWILIO_VERIFY_TEMPLATE_SID') ||
         'HX7bac3780c16f0225c0cc2e9f347ad288';
-      const templateCustomSubstitutions = JSON.stringify({ '1': code });
+      // Use the template variable name `otp` as shown in your Twilio template
+      const templateCustomSubstitutions = JSON.stringify({ otp: code });
 
       const verification = await this.getTwilioClient()
         .verify.v2.services(verifyServiceSid)
@@ -98,22 +99,38 @@ export class AuthService {
         status: verification.status,
       };
     } catch (error) {
-      const twilioError = error as {
+      let twilioError = error as {
         code?: number;
         message?: string;
         status?: number;
         moreInfo?: string;
       };
+
+      // If Twilio rejects the TemplateSid, retry without template fields as a fallback.
+      if (
+        (twilioError.message ?? '').includes('TemplateSid') ||
+        (twilioError.moreInfo ?? '').includes('TemplateSid')
+      ) {
+        try {
+          const verification = await this.getTwilioClient()
+            .verify.v2.services(verifyServiceSid)
+            .verifications.create({
+              to: normalizedPhone,
+              channel: 'sms',
+            });
+          return { message: 'OTP sent (template fallback)', status: verification.status };
+        } catch (err2) {
+          twilioError = err2 as typeof twilioError;
+        }
+      }
+
       this.logger.error(
         `Twilio OTP send failed for ${normalizedPhone}. code=${twilioError.code ?? 'unknown'} status=${twilioError.status ?? 'unknown'} message=${twilioError.message ?? 'unknown'}`,
       );
 
-      const isProd =
-      this.configService.get<string>('NODE_ENV') === 'production';
+      const isProd = this.configService.get<string>('NODE_ENV') === 'production';
       if (!isProd) {
-        this.logger.warn(
-          'Fallback OTP sent. Check phone number and Twilio configuration.',
-        );
+        this.logger.warn('Fallback OTP sent. Check phone number and Twilio configuration.');
         return {
           message: 'Fallback OTP sent. Check phone number and Twilio configuration.',
           status: 'warning',
@@ -121,10 +138,8 @@ export class AuthService {
         };
       }
 
-
       throw new BadRequestException({
-        message:
-          'Failed to send OTP. Check phone number and Twilio configuration.',
+        message: 'Failed to send OTP. Check phone number and Twilio configuration.',
         ...(isProd
           ? {}
           : {
