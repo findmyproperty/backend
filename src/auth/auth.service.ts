@@ -75,11 +75,6 @@ export class AuthService {
         'TWILIO_VERIFY_TEMPLATE_SID must be configured.',
       );
     }
-    if (!templateSid.startsWith('HJ')) {
-      throw new BadRequestException(
-        'TWILIO_VERIFY_TEMPLATE_SID is invalid. Verify templates must start with "HJ".',
-      );
-    }
 
     try {
       const code = String(randomInt(100000, 1000000));
