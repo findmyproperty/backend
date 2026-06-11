@@ -17,7 +17,10 @@ import { UpdateUserDto } from '../users/dto/update-user.dto';
 import { User, UserRole } from '../users/entities/user.entity';
 import { parseDurationToSeconds } from '../helper/duration';
 import { VerifyPhoneOtpDto } from './dto/verify-phone-otp.dto';
-import twilio, { type Twilio } from 'twilio';
+import twilio, {
+  type Twilio,
+} from 'twilio';
+import type { VerificationListInstanceCreateOptions } from 'twilio/lib/rest/verify/v2/service/verification';
 import { BRAND_COLOR, BRAND_ON_COLOR } from '../helper/email-theme';
 
 /** Mail transporter shape used here to avoid nodemailer typings issues. */
@@ -70,25 +73,26 @@ export class AuthService {
     const templateSid = this.configService.get<string>(
       'TWILIO_VERIFY_TEMPLATE_SID',
     );
-    if (!templateSid) {
-      throw new BadRequestException(
-        'TWILIO_VERIFY_TEMPLATE_SID must be configured.',
-      );
-    }
 
     try {
       const code = String(randomInt(100000, 1000000));
-      const templateCustomSubstitutions = JSON.stringify({ otp: code });
+
+      const verificationOptions: VerificationListInstanceCreateOptions = {
+        to: normalizedPhone,
+        channel: 'sms',
+        customCode: code,
+      };
+
+      if (templateSid) {
+        verificationOptions.templateSid = templateSid;
+        verificationOptions.templateCustomSubstitutions = JSON.stringify({
+          otp: code,
+        });
+      }
 
       const verification = await this.getTwilioClient()
         .verify.v2.services(verifyServiceSid)
-        .verifications.create({
-          to: normalizedPhone,
-          channel: 'sms',
-          customCode: code,
-          templateSid,
-          templateCustomSubstitutions,
-        });
+        .verifications.create(verificationOptions);
 
       return {
         message: 'OTP sent successfully',
