@@ -8,6 +8,15 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import sharp from 'sharp';
 import * as fs from 'fs';
+import {
+  ensureUploadDirExists,
+  getPublicUploadBaseUrl,
+  getUploadDestination,
+  UPLOAD_PUBLIC_PATH,
+} from './upload-paths';
+
+// Ensure the upload directory exists at module load time
+const uploadDest = ensureUploadDirExists();
 
 @Controller('upload')
 export class UploadController {
@@ -15,7 +24,7 @@ export class UploadController {
   @UseInterceptors(
     FileInterceptor('file', {
       storage: diskStorage({
-        destination: '/var/www/uploads',
+        destination: uploadDest,
         filename: (req, file, cb) => {
           const uniqueName = Date.now() + '-' + file.originalname;
           cb(null, uniqueName);
@@ -27,13 +36,14 @@ export class UploadController {
     if (file.mimetype.startsWith('image/')) {
       const buffer = fs.readFileSync(file.path);
       const compressedBuffer = await sharp(buffer)
-        .resize({ width: 1200, withoutEnlargement: true }) // Adjust max width as needed
+        .resize({ width: 1200, withoutEnlargement: true })
         .toBuffer();
       fs.writeFileSync(file.path, compressedBuffer);
     }
 
+    const baseUrl = getPublicUploadBaseUrl();
     return {
-      url: `http://187.127.133.141/uploads/${file.filename}`,
+      url: `${baseUrl}/${UPLOAD_PUBLIC_PATH}/${file.filename}`,
     };
   }
 }
