@@ -14,6 +14,7 @@ import {
 import { BaseServiceRequestDto } from './dto/base-service-request.dto';
 import { CreatePackersMoversDto } from './dto/create-packers-movers.dto';
 import { CreatePaintingCleaningDto } from './dto/create-painting-cleaning.dto';
+import { CreateEventManagementDto } from './dto/create-event-management.dto';
 import { UpdateServiceRequestDto } from './dto/update-service-request.dto';
 import { ListServiceRequestsQueryDto } from './dto/list-service-requests.query.dto';
 import { ServiceRequestsNotifier } from './service-requests.notifier';
@@ -85,6 +86,13 @@ export class ServiceRequestsService {
     return this.create(ServiceType.PAINTING_CLEANING, dto, dto.details, userId);
   }
 
+  async createEventManagement(
+    dto: CreateEventManagementDto,
+    userId: number | null,
+  ): Promise<ServiceRequestResponse> {
+    return this.create(ServiceType.EVENT_MANAGEMENT, dto, dto.details, userId);
+  }
+
   private async create(
     serviceType: ServiceType,
     base: BaseServiceRequestDto,
@@ -125,7 +133,9 @@ export class ServiceRequestsService {
   ): Promise<PagedServiceRequests> {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
-    const qb = this.repo.createQueryBuilder('sr').orderBy('sr.createdAt', 'DESC');
+    const qb = this.repo
+      .createQueryBuilder('sr')
+      .orderBy('sr.createdAt', 'DESC');
     if (query.serviceType) {
       qb.andWhere('sr.serviceType = :t', { t: query.serviceType });
     }
@@ -176,6 +186,12 @@ export class ServiceRequestsService {
       row.assignedAdminId = dto.assignedAdminId ?? null;
     if (dto.assignedVendorUserId !== undefined) {
       row.assignedVendorUserId = dto.assignedVendorUserId ?? null;
+      if (dto.status === undefined) {
+        row.status =
+          row.assignedVendorUserId == null
+            ? ServiceRequestStatus.NEW
+            : ServiceRequestStatus.CONTACTED;
+      }
     }
 
     const saved = await this.repo.save(row);
@@ -212,11 +228,13 @@ export class ServiceRequestsService {
     const byType = {
       [ServiceType.PACKERS_MOVERS]: this.emptyStatusMap(),
       [ServiceType.PAINTING_CLEANING]: this.emptyStatusMap(),
+      [ServiceType.EVENT_MANAGEMENT]: this.emptyStatusMap(),
     } as Record<ServiceType, Record<ServiceRequestStatus, number>>;
 
     const totals: Record<ServiceType, number> = {
       [ServiceType.PACKERS_MOVERS]: 0,
       [ServiceType.PAINTING_CLEANING]: 0,
+      [ServiceType.EVENT_MANAGEMENT]: 0,
     };
     let openTotal = 0;
 

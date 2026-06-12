@@ -17,6 +17,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { CreatePackersMoversDto } from './dto/create-packers-movers.dto';
 import { CreatePaintingCleaningDto } from './dto/create-painting-cleaning.dto';
+import { CreateEventManagementDto } from './dto/create-event-management.dto';
 import { TripEstimateQueryDto } from './dto/trip-estimate.query.dto';
 import { DistanceService } from './distance.service';
 import { ServiceRequestsService } from './service-requests.service';
@@ -58,6 +59,18 @@ export class ServiceRequestsController {
   ) {
     const userId = req.user?.userId ?? null;
     return this.service.createPaintingCleaning(dto, userId);
+  }
+
+  @UseGuards(OptionalJwtAuthGuard)
+  @Throttle({ default: { limit: 5, ttl: 900_000 } })
+  @Post('event-management')
+  @HttpCode(HttpStatus.CREATED)
+  async submitEventManagement(
+    @Req() req: RequestWithUser,
+    @Body() dto: CreateEventManagementDto,
+  ) {
+    const userId = req.user?.userId ?? null;
+    return this.service.createEventManagement(dto, userId);
   }
 
   /** Authenticated user: their own service requests across both types. */

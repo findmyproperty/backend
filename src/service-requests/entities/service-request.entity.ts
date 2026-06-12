@@ -10,6 +10,7 @@ import {
 export enum ServiceType {
   PACKERS_MOVERS = 'packers_movers',
   PAINTING_CLEANING = 'painting_cleaning',
+  EVENT_MANAGEMENT = 'event_management',
 }
 
 /** Avoid MySQL ENUM for status (reserved word issues with `new`); mirror LeadStatus pattern. */
@@ -74,9 +75,29 @@ export interface PaintingCleaningDetails {
   notes?: string | null;
 }
 
+export interface EventManagementDetails {
+  eventType: 'birthday' | 'wedding' | 'baby_shower' | 'corporate';
+  venueType: 'home' | 'banquet' | 'hotel' | 'outdoor' | 'office' | 'other';
+  guestCount: number;
+  budgetRange?: string | null;
+  services: Array<
+    | 'decoration'
+    | 'catering'
+    | 'photography'
+    | 'music'
+    | 'hosting'
+    | 'return_gifts'
+    | 'venue_booking'
+  >;
+  location?: Stop;
+  themeOrStyle?: string | null;
+  notes?: string | null;
+}
+
 export type ServiceRequestDetails =
   | PackersMoversDetails
-  | PaintingCleaningDetails;
+  | PaintingCleaningDetails
+  | EventManagementDetails;
 
 @Entity('service_requests')
 export class ServiceRequest {

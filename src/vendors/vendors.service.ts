@@ -117,6 +117,13 @@ export class VendorsService {
       profile.certificateUrls = dto.certificateUrls;
     }
     if (dto.slug !== undefined) profile.slug = dto.slug;
+    if (
+      user.isActive !== false &&
+      profile.verificationStatus === VendorVerificationStatus.REJECTED
+    ) {
+      profile.verificationStatus = VendorVerificationStatus.PENDING;
+      profile.rejectionReason = null;
+    }
     const saved = await this.profileRepo.save(profile);
     return this.mapProfile(saved, user);
   }
