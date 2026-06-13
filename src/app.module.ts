@@ -24,9 +24,15 @@ import { VendorProfile } from './vendors/entities/vendor-profile.entity';
 import { VendorLead } from './vendor-leads/entities/vendor-lead.entity';
 import { VendorLeadUpdate } from './vendor-leads/entities/vendor-lead-update.entity';
 import { VendorLedgerEntry } from './vendor-wallet/entities/vendor-ledger-entry.entity';
+import { VendorPayoutAccount } from './vendor-wallet/entities/vendor-payout-account.entity';
+import { VendorWithdrawal } from './vendor-wallet/entities/vendor-withdrawal.entity';
 import { VendorsModule } from './vendors/vendors.module';
 import { VendorLeadsModule } from './vendor-leads/vendor-leads.module';
 import { VendorWalletModule } from './vendor-wallet/vendor-wallet.module';
+import { AdminWalletEntry } from './admin-wallet/entities/admin-wallet-entry.entity';
+import { AdminWalletModule } from './admin-wallet/admin-wallet.module';
+import { RazorpayWebhookEvent } from './razorpay/entities/razorpay-webhook-event.entity';
+import { PaymentsModule } from './payments/payments.module';
 import { Notification } from './notifications/entities/notification.entity';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SupportTicket } from './support-tickets/entities/support-ticket.entity';
@@ -80,6 +86,10 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
             VendorLead,
             VendorLeadUpdate,
             VendorLedgerEntry,
+            VendorPayoutAccount,
+            VendorWithdrawal,
+            AdminWalletEntry,
+            RazorpayWebhookEvent,
             Notification,
             SupportTicket,
           ],
@@ -100,7 +110,9 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
     ServiceRequestsModule,
     VendorsModule,
     VendorLeadsModule,
+    AdminWalletModule,
     VendorWalletModule,
+    PaymentsModule,
     NotificationsModule,
     SupportTicketsModule,
   ],

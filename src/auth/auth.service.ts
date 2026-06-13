@@ -23,7 +23,7 @@ import twilio, { type Twilio } from 'twilio';
 import { VendorsService } from '../vendors/vendors.service';
 import { BRAND_COLOR, BRAND_ON_COLOR } from '../helper/email-theme';
 
-/** Fallback OTP when Twilio is not configured (e.g. local dev). */
+/** Fixed OTP used only for local development. */
 const FALLBACK_OTP_CODE = '456789';
 
 /** Mail transporter shape used here to avoid nodemailer typings issues. */
@@ -66,17 +66,24 @@ export class AuthService {
       );
     }
 
+    if (this.isDevelopmentEnvironment()) {
+      this.logger.warn(
+        `Development mode: skipping Twilio OTP for ${normalizedPhone}. Use code ${FALLBACK_OTP_CODE}.`,
+      );
+      return {
+        message: 'OTP sent successfully',
+        status: 'development',
+        code: FALLBACK_OTP_CODE,
+      };
+    }
+
     const verifyServiceSid = this.configService.get<string>(
       'TWILIO_VERIFY_SERVICE_SID',
     );
     if (!verifyServiceSid) {
-      this.logger.warn(
-        'Twilio not configured; using fallback OTP. Use code 456789 to verify.',
+      throw new BadRequestException(
+        'TWILIO_VERIFY_SERVICE_SID must be configured.',
       );
-      return {
-        message: 'OTP sent successfully',
-        status: 'fallback',
-      };
     }
 
     try {
@@ -102,24 +109,10 @@ export class AuthService {
         `Twilio OTP send failed for ${normalizedPhone}. code=${twilioError.code ?? 'unknown'} status=${twilioError.status ?? 'unknown'} message=${twilioError.message ?? 'unknown'}`,
       );
 
-      const isProd =
-      this.configService.get<string>('NODE_ENV') === 'production';
-      if (!isProd) {
-        this.logger.warn(
-          'Fallback OTP sent. Check phone number and Twilio configuration.',
-        );
-        return {
-          message: 'Fallback OTP sent. Check phone number and Twilio configuration.',
-          status: 'warning',
-          code: FALLBACK_OTP_CODE,
-        };
-      }
-
-
       throw new BadRequestException({
         message:
           'Failed to send OTP. Check phone number and Twilio configuration.',
-        ...(isProd
+        ...(this.isProductionEnvironment()
           ? {}
           : {
               twilioCode: twilioError.code ?? null,
@@ -147,19 +140,20 @@ export class AuthService {
     const verifyServiceSid = this.configService.get<string>(
       'TWILIO_VERIFY_SERVICE_SID',
     );
-    const useFallbackOtp = !verifyServiceSid;
-    if (useFallbackOtp) {
+    if (this.isDevelopmentEnvironment()) {
       if (code !== FALLBACK_OTP_CODE) {
         throw new UnauthorizedException('Invalid OTP code.');
       }
-      // Fallback OTP accepted; continue to find/create user and issue tokens
-    } else if (code === FALLBACK_OTP_CODE) {
-      // Twilio is configured but user sent fallback code — still accept it for dev convenience
       this.logger.warn(
-        `Fallback OTP ${FALLBACK_OTP_CODE} accepted for ${normalizedPhone}.`,
+        `Development OTP ${FALLBACK_OTP_CODE} accepted for ${normalizedPhone}.`,
       );
-      // Continue to find/create user and issue tokens
     } else {
+      if (!verifyServiceSid) {
+        throw new BadRequestException(
+          'TWILIO_VERIFY_SERVICE_SID must be configured.',
+        );
+      }
+
       try {
         const verificationCheck = await this.getTwilioClient()
           .verify.v2.services(verifyServiceSid)
@@ -184,11 +178,9 @@ export class AuthService {
         this.logger.error(
           `Twilio OTP verify failed for ${normalizedPhone}. code=${twilioError.code ?? 'unknown'} status=${twilioError.status ?? 'unknown'} message=${twilioError.message ?? 'unknown'}`,
         );
-        const isProd =
-          this.configService.get<string>('NODE_ENV') === 'production';
         throw new BadRequestException({
           message: 'OTP verification failed.',
-          ...(isProd
+          ...(this.isProductionEnvironment()
             ? {}
             : {
                 twilioCode: twilioError.code ?? null,
@@ -773,6 +765,14 @@ export class AuthService {
 
     this.twilioClient = twilio(accountSid, authToken);
     return this.twilioClient;
+  }
+
+  private isDevelopmentEnvironment() {
+    return this.configService.get<string>('NODE_ENV') === 'development';
+  }
+
+  private isProductionEnvironment() {
+    return this.configService.get<string>('NODE_ENV') === 'production';
   }
 
   private hashEmailOtp(email: string, code: string) {

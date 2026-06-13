@@ -15,6 +15,7 @@ export enum VendorLedgerType {
 export enum VendorLedgerStatus {
   PENDING = 'pending',
   SETTLED = 'settled',
+  FAILED = 'failed',
 }
 
 @Entity('vendor_ledger_entries')
