@@ -15,6 +15,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { VendorWalletService } from './vendor-wallet.service';
 import { ListLedgerQueryDto } from './dto/list-ledger.query.dto';
 import { AdminPayoutDto } from './dto/admin-payout.dto';
+import { AdminCreatePayoutDto } from './dto/admin-create-payout.dto';
 
 interface RequestWithUser extends Request {
   user?: { userId: number; role: string };
@@ -48,11 +49,33 @@ export class VendorWalletAdminController {
     return this.walletService.listEntries(vendorUserId, query);
   }
 
+  @Get(':vendorUserId/payout-accounts')
+  async payoutAccounts(
+    @Req() req: RequestWithUser,
+    @Param('vendorUserId', ParseIntPipe) vendorUserId: number,
+  ) {
+    if (req.user?.role !== 'admin') {
+      throw new ForbiddenException('Only admins');
+    }
+    return this.walletService.listPayoutAccounts(vendorUserId);
+  }
+
   @Post('payout')
   async payout(@Req() req: RequestWithUser, @Body() dto: AdminPayoutDto) {
     if (req.user?.role !== 'admin') {
       throw new ForbiddenException('Only admins');
     }
     return this.walletService.adminRecordPayout(dto);
+  }
+
+  @Post('payouts')
+  async createPayout(
+    @Req() req: RequestWithUser,
+    @Body() dto: AdminCreatePayoutDto,
+  ) {
+    if (req.user?.role !== 'admin') {
+      throw new ForbiddenException('Only admins');
+    }
+    return this.walletService.adminCreatePayout(dto);
   }
 }

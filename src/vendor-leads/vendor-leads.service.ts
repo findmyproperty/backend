@@ -212,6 +212,21 @@ export class VendorLeadsService {
     };
   }
 
+  async adminFindOne(id: number): Promise<VendorLeadResponse> {
+    const lead = await this.leadRepo.findOneBy({ id });
+    if (!lead) {
+      throw new NotFoundException(`Vendor lead ${id} not found`);
+    }
+    const updates = await this.updateRepo.find({
+      where: { vendorLeadId: id },
+      order: { createdAt: 'ASC' },
+    });
+    return {
+      ...this.mapLead(lead),
+      updates: updates.map((u) => this.mapUpdate(u)),
+    };
+  }
+
   async adminCreate(
     dto: AdminCreateVendorLeadDto,
   ): Promise<VendorLeadResponse> {

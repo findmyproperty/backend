@@ -179,14 +179,34 @@ export class RazorpayService {
   verifyWebhookSignature(rawBody: Buffer, signature: string): boolean {
     const secret = this.getRequiredConfig('RAZORPAY_WEBHOOK_SECRET');
     const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
-    const expectedBuffer = Buffer.from(expected, 'hex');
-    const receivedBuffer = Buffer.from(signature, 'hex');
+    return this.safeCompareHex(expected, signature);
+  }
 
-    if (expectedBuffer.length !== receivedBuffer.length) {
+  verifyPaymentSignature(input: {
+    razorpayOrderId: string;
+    razorpayPaymentId: string;
+    razorpaySignature: string;
+  }): boolean {
+    const secret = this.getRequiredConfig('RAZORPAY_KEY_SECRET');
+    const expected = createHmac('sha256', secret)
+      .update(`${input.razorpayOrderId}|${input.razorpayPaymentId}`)
+      .digest('hex');
+    return this.safeCompareHex(expected, input.razorpaySignature);
+  }
+
+  private safeCompareHex(expected: string, received: string): boolean {
+    try {
+      const expectedBuffer = Buffer.from(expected, 'hex');
+      const receivedBuffer = Buffer.from(received, 'hex');
+
+      if (expectedBuffer.length !== receivedBuffer.length) {
+        return false;
+      }
+
+      return timingSafeEqual(expectedBuffer, receivedBuffer);
+    } catch {
       return false;
     }
-
-    return timingSafeEqual(expectedBuffer, receivedBuffer);
   }
 
   private async request<T>(

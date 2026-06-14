@@ -13,6 +13,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminWalletService } from './admin-wallet.service';
 import { CreateAdminTopUpDto } from './dto/create-admin-top-up.dto';
 import { ListAdminWalletEntriesQueryDto } from './dto/list-admin-wallet-entries.query.dto';
+import { VerifyAdminTopUpDto } from './dto/verify-admin-top-up.dto';
 
 interface RequestWithUser extends Request {
   user?: { userId: number; role: string };
@@ -30,6 +31,15 @@ export class AdminWalletController {
   ) {
     const adminUserId = this.requireAdmin(req);
     return this.adminWalletService.createTopUp(adminUserId, dto);
+  }
+
+  @Post('top-ups/verify')
+  async verifyTopUp(
+    @Req() req: RequestWithUser,
+    @Body() dto: VerifyAdminTopUpDto,
+  ) {
+    const adminUserId = this.requireAdmin(req);
+    return this.adminWalletService.verifyTopUpPayment(adminUserId, dto);
   }
 
   @Get('summary')

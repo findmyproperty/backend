@@ -38,6 +38,17 @@ export class VendorLeadsAdminController {
     return this.service.adminList(query);
   }
 
+  @Get(':id')
+  async findOne(
+    @Req() req: RequestWithUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    if (req.user?.role !== 'admin') {
+      throw new ForbiddenException('Only admins');
+    }
+    return this.service.adminFindOne(id);
+  }
+
   @Post()
   async create(
     @Req() req: RequestWithUser,

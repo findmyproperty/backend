@@ -26,6 +26,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
 import { ListLedgerQueryDto } from './dto/list-ledger.query.dto';
 import { AdminPayoutDto } from './dto/admin-payout.dto';
+import { AdminCreatePayoutDto } from './dto/admin-create-payout.dto';
 import { CreatePayoutAccountDto } from './dto/create-payout-account.dto';
 import { CreateWithdrawalDto } from './dto/create-withdrawal.dto';
 import { ListWithdrawalsQueryDto } from './dto/list-withdrawals.query.dto';
@@ -251,6 +252,17 @@ export class VendorWalletService {
     });
 
     return this.mapEntry(saved);
+  }
+
+  async adminCreatePayout(
+    dto: AdminCreatePayoutDto,
+  ): Promise<WithdrawalResponse> {
+    return this.createWithdrawal(dto.vendorUserId, {
+      payoutAccountId: dto.payoutAccountId,
+      amount: dto.amount,
+      mode: dto.mode,
+      description: dto.description?.trim() || 'Admin RazorpayX vendor payout',
+    });
   }
 
   async createPayoutAccount(

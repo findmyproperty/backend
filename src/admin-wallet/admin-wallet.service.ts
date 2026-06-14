@@ -1,10 +1,15 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
 import { Repository } from 'typeorm';
 import { RazorpayOrder, RazorpayService } from '../razorpay/razorpay.service';
 import { CreateAdminTopUpDto } from './dto/create-admin-top-up.dto';
 import { ListAdminWalletEntriesQueryDto } from './dto/list-admin-wallet-entries.query.dto';
+import { VerifyAdminTopUpDto } from './dto/verify-admin-top-up.dto';
 import {
   AdminWalletEntry,
   AdminWalletEntryStatus,
@@ -157,6 +162,43 @@ export class AdminWalletService {
       payoutDebits: this.roundMoney(payoutDebits),
       pendingPayoutDebits: this.roundMoney(pendingPayoutDebits),
     };
+  }
+
+  async verifyTopUpPayment(
+    adminUserId: number,
+    dto: VerifyAdminTopUpDto,
+  ): Promise<AdminWalletEntryResponse> {
+    const entry = await this.repo.findOne({
+      where: {
+        adminUserId,
+        razorpayOrderId: dto.razorpayOrderId,
+        type: AdminWalletEntryType.TOP_UP,
+      },
+    });
+    if (!entry) {
+      throw new NotFoundException('Admin wallet top-up order not found.');
+    }
+
+    const isValid = this.razorpayService.verifyPaymentSignature(dto);
+    if (!isValid) {
+      throw new BadRequestException('Invalid Razorpay payment signature.');
+    }
+
+    if (entry.status === AdminWalletEntryStatus.SETTLED) {
+      return this.mapEntry(entry);
+    }
+
+    entry.status = AdminWalletEntryStatus.SETTLED;
+    entry.razorpayPaymentId = dto.razorpayPaymentId;
+    entry.metadata = {
+      ...(entry.metadata ?? {}),
+      checkout: {
+        razorpayOrderId: dto.razorpayOrderId,
+        razorpayPaymentId: dto.razorpayPaymentId,
+      },
+    };
+    const saved = await this.repo.save(entry);
+    return this.mapEntry(saved);
   }
 
   async listEntries(query: ListAdminWalletEntriesQueryDto): Promise<{
