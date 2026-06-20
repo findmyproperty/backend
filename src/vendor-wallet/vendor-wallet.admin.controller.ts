@@ -16,6 +16,7 @@ import { VendorWalletService } from './vendor-wallet.service';
 import { ListLedgerQueryDto } from './dto/list-ledger.query.dto';
 import { AdminPayoutDto } from './dto/admin-payout.dto';
 import { AdminCreatePayoutDto } from './dto/admin-create-payout.dto';
+import { AdminCreditWalletDto } from './dto/admin-credit-wallet.dto';
 
 interface RequestWithUser extends Request {
   user?: { userId: number; role: string };
@@ -77,5 +78,16 @@ export class VendorWalletAdminController {
       throw new ForbiddenException('Only admins');
     }
     return this.walletService.adminCreatePayout(dto);
+  }
+
+  @Post('credits')
+  async creditWallet(
+    @Req() req: RequestWithUser,
+    @Body() dto: AdminCreditWalletDto,
+  ) {
+    if (req.user?.role !== 'admin') {
+      throw new ForbiddenException('Only admins');
+    }
+    return this.walletService.adminCreditWallet(dto);
   }
 }

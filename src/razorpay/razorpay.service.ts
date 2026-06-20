@@ -173,6 +173,7 @@ export class RazorpayService {
       {
         'X-Payout-Idempotency': idempotencyKey,
       },
+      { useRazorpayXBaseUrl: true },
     );
   }
 
@@ -214,8 +215,12 @@ export class RazorpayService {
     path: string,
     body?: unknown,
     extraHeaders: Record<string, string> = {},
+    options: { useRazorpayXBaseUrl?: boolean } = {},
   ): Promise<T> {
-    const response = await fetch(`${this.getApiBaseUrl()}${path}`, {
+    const baseUrl = options.useRazorpayXBaseUrl
+      ? this.getRazorpayXApiBaseUrl()
+      : this.getApiBaseUrl();
+    const response = await fetch(`${baseUrl}${path}`, {
       method,
       headers: {
         Authorization: `Basic ${this.getBasicAuthToken()}`,
@@ -228,13 +233,18 @@ export class RazorpayService {
     const text = await response.text();
     const parsed = this.parseResponseBody(text);
     if (!response.ok) {
+      const razorpayError =
+        typeof parsed === 'object' && parsed && 'error' in parsed
+          ? (parsed as { error: unknown }).error
+          : parsed;
+      const detail = this.getRazorpayErrorMessage(razorpayError);
       throw new BadRequestException({
-        message: 'Razorpay request failed.',
+        message: detail
+          ? `Razorpay request failed: ${detail}`
+          : 'Razorpay request failed.',
         razorpayStatus: response.status,
-        razorpayError:
-          typeof parsed === 'object' && parsed && 'error' in parsed
-            ? (parsed as { error: unknown }).error
-            : parsed,
+        razorpayPath: path,
+        razorpayError,
       });
     }
 
@@ -269,5 +279,38 @@ export class RazorpayService {
     } catch {
       return text;
     }
+  }
+
+  private getRazorpayXApiBaseUrl(): string {
+    return (
+      this.configService.get<string>('RAZORPAYX_API_BASE_URL') ||
+      this.getApiBaseUrl()
+    ).replace(/\/+$/, '');
+  }
+
+  private getRazorpayErrorMessage(error: unknown): string | null {
+    if (!error) return null;
+    if (typeof error === 'string') return error;
+    if (typeof error !== 'object') return null;
+
+    const fields = error as Record<string, unknown>;
+    const description =
+      typeof fields.description === 'string' ? fields.description : null;
+    const reason = typeof fields.reason === 'string' ? fields.reason : null;
+    const code = typeof fields.code === 'string' ? fields.code : null;
+    const field = typeof fields.field === 'string' ? fields.field : null;
+
+    const message = [description, reason, code, field]
+      .filter(Boolean)
+      .join(' | ');
+
+    if (
+      description?.toLowerCase().includes('requested url was not found') &&
+      code === 'BAD_REQUEST_ERROR'
+    ) {
+      return `${message}. Check RazorpayX/Payouts access for these API keys and RAZORPAYX_API_BASE_URL. Normal Payment Gateway keys without Payouts access cannot call /payouts.`;
+    }
+
+    return message;
   }
 }

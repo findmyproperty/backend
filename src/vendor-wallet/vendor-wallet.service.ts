@@ -27,6 +27,7 @@ import { NotificationType } from '../notifications/entities/notification.entity'
 import { ListLedgerQueryDto } from './dto/list-ledger.query.dto';
 import { AdminPayoutDto } from './dto/admin-payout.dto';
 import { AdminCreatePayoutDto } from './dto/admin-create-payout.dto';
+import { AdminCreditWalletDto } from './dto/admin-credit-wallet.dto';
 import { CreatePayoutAccountDto } from './dto/create-payout-account.dto';
 import { CreateWithdrawalDto } from './dto/create-withdrawal.dto';
 import { ListWithdrawalsQueryDto } from './dto/list-withdrawals.query.dto';
@@ -36,8 +37,6 @@ import {
   RazorpayPayout,
   RazorpayService,
 } from '../razorpay/razorpay.service';
-import { AdminWalletService } from '../admin-wallet/admin-wallet.service';
-import { AdminWalletEntryStatus } from '../admin-wallet/entities/admin-wallet-entry.entity';
 
 export interface WalletSummary {
   totalEarnings: number;
@@ -110,7 +109,6 @@ export class VendorWalletService {
     private readonly notifications: NotificationsService,
     private readonly usersService: UsersService,
     private readonly razorpayService: RazorpayService,
-    private readonly adminWalletService: AdminWalletService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -265,6 +263,33 @@ export class VendorWalletService {
     });
   }
 
+  async adminCreditWallet(
+    dto: AdminCreditWalletDto,
+  ): Promise<LedgerEntryResponse> {
+    const amountPaise = this.toPaise(dto.amount);
+    const amount = amountPaise / 100;
+    const entry = await this.ledgerRepo.save(
+      this.ledgerRepo.create({
+        vendorUserId: dto.vendorUserId,
+        vendorLeadId: null,
+        type: VendorLedgerType.EARNING,
+        amount,
+        status: VendorLedgerStatus.PENDING,
+        description: dto.description?.trim() || 'Admin wallet credit',
+      }),
+    );
+
+    await this.notifications.create({
+      userId: dto.vendorUserId,
+      type: NotificationType.VENDOR_PAYOUT,
+      title: 'Wallet credited',
+      body: `INR ${amount} has been added to your vendor wallet.`,
+      metadata: { ledgerEntryId: entry.id },
+    });
+
+    return this.mapEntry(entry);
+  }
+
   async createPayoutAccount(
     vendorUserId: number,
     dto: CreatePayoutAccountDto,
@@ -393,20 +418,6 @@ export class VendorWalletService {
     withdrawal = await this.withdrawalRepo.save(withdrawal);
 
     try {
-      await this.adminWalletService.reserveVendorPayoutDebit({
-        vendorUserId,
-        vendorWithdrawalId: withdrawal.id,
-        amount,
-        amountPaise,
-        referenceId,
-        description: `Vendor withdrawal #${withdrawal.id}`,
-      });
-    } catch (error) {
-      await this.markWithdrawalFailedBeforePayout(withdrawal, ledger, error);
-      throw error;
-    }
-
-    try {
       const payout = await this.razorpayService.createPayout(
         {
           accountNumber: razorpayXAccountNumber,
@@ -430,11 +441,6 @@ export class VendorWalletService {
       return this.applyPayoutUpdate(withdrawal, payout, null);
     } catch (error) {
       await this.markWithdrawalFailedBeforePayout(withdrawal, ledger, error);
-      await this.adminWalletService.markVendorPayoutDebit({
-        vendorWithdrawalId: withdrawal.id,
-        status: AdminWalletEntryStatus.FAILED,
-        metadata: { error: String(error) },
-      });
       throw error;
     }
   }
@@ -512,13 +518,6 @@ export class VendorWalletService {
 
     const saved = await this.withdrawalRepo.save(withdrawal);
     await this.updateLedgerForWithdrawal(saved);
-    await this.adminWalletService.markVendorPayoutDebit({
-      vendorWithdrawalId: saved.id,
-      status: this.toAdminWalletStatus(nextStatus),
-      razorpayPayoutId: saved.razorpayPayoutId,
-      webhookEventId: webhookEventId ?? undefined,
-      metadata: { payout: this.sanitizePayout(payout) },
-    });
 
     if (
       nextStatus === VendorWithdrawalStatus.PROCESSED &&
@@ -688,18 +687,6 @@ export class VendorWalletService {
       default:
         return VendorWithdrawalStatus.PROCESSING;
     }
-  }
-
-  private toAdminWalletStatus(
-    status: VendorWithdrawalStatus,
-  ): AdminWalletEntryStatus {
-    if (status === VendorWithdrawalStatus.PROCESSED) {
-      return AdminWalletEntryStatus.SETTLED;
-    }
-    if (this.isFailureStatus(status)) {
-      return AdminWalletEntryStatus.FAILED;
-    }
-    return AdminWalletEntryStatus.PENDING;
   }
 
   private isFailureStatus(status: VendorWithdrawalStatus): boolean {
