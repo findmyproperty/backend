@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { UsersModule } from '../users/users.module';
+import { VendorProfile } from '../vendors/entities/vendor-profile.entity';
 import { ServiceRequest } from './entities/service-request.entity';
 import { ServiceRequestsController } from './service-requests.controller';
 import { ServiceRequestsAdminController } from './service-requests.admin.controller';
@@ -11,7 +12,7 @@ import { VendorLeadsModule } from '../vendor-leads/vendor-leads.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ServiceRequest]),
+    TypeOrmModule.forFeature([ServiceRequest, VendorProfile]),
     UsersModule,
     VendorLeadsModule,
   ],

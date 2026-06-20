@@ -1,4 +1,6 @@
 import {
+  BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -14,8 +16,10 @@ import {
 import { BaseServiceRequestDto } from './dto/base-service-request.dto';
 import { CreatePackersMoversDto } from './dto/create-packers-movers.dto';
 import { CreatePaintingCleaningDto } from './dto/create-painting-cleaning.dto';
+import { CreateHomeServicesDto } from './dto/create-home-services.dto';
 import { CreateEventManagementDto } from './dto/create-event-management.dto';
 import { UpdateServiceRequestDto } from './dto/update-service-request.dto';
+import { SubmitServiceRequestFeedbackDto } from './dto/submit-service-request-feedback.dto';
 import { ListServiceRequestsQueryDto } from './dto/list-service-requests.query.dto';
 import { ServiceRequestsNotifier } from './service-requests.notifier';
 import { DistanceService } from './distance.service';
@@ -38,6 +42,9 @@ export interface ServiceRequestResponse {
   internalNotes: string | null;
   assignedAdminId: number | null;
   assignedVendorUserId: number | null;
+  customerRating: number | null;
+  customerFeedback: string | null;
+  customerReviewedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -86,6 +93,13 @@ export class ServiceRequestsService {
     return this.create(ServiceType.PAINTING_CLEANING, dto, dto.details, userId);
   }
 
+  async createHomeServices(
+    dto: CreateHomeServicesDto,
+    userId: number | null,
+  ): Promise<ServiceRequestResponse> {
+    return this.create(ServiceType.HOME_SERVICES, dto, dto.details, userId);
+  }
+
   async createEventManagement(
     dto: CreateEventManagementDto,
     userId: number | null,
@@ -126,6 +140,36 @@ export class ServiceRequestsService {
       order: { createdAt: 'DESC' },
     });
     return rows.map((r) => this.map(r));
+  }
+
+  async submitFeedback(
+    id: number,
+    userId: number,
+    dto: SubmitServiceRequestFeedbackDto,
+  ): Promise<ServiceRequestResponse> {
+    const row = await this.repo.findOneBy({ id });
+    if (!row) {
+      throw new NotFoundException(`Service request ${id} not found`);
+    }
+    if (row.userId !== userId) {
+      throw new ForbiddenException('Not your service request');
+    }
+    if (row.status !== ServiceRequestStatus.COMPLETED) {
+      throw new BadRequestException(
+        'Feedback is only allowed after the service is completed.',
+      );
+    }
+    if (row.customerReviewedAt != null || row.customerRating != null) {
+      throw new ConflictException('Feedback has already been submitted.');
+    }
+
+    const feedback = dto.feedback?.trim() || null;
+    row.customerRating = dto.rating;
+    row.customerFeedback = feedback;
+    row.customerReviewedAt = new Date();
+
+    const saved = await this.repo.save(row);
+    return this.map(saved);
   }
 
   async adminList(
@@ -180,6 +224,7 @@ export class ServiceRequestsService {
       throw new NotFoundException(`Service request ${id} not found`);
     }
     const previousStatus = row.status;
+    const previousVendorUserId = row.assignedVendorUserId;
     if (dto.status !== undefined) row.status = dto.status;
     if (dto.internalNotes !== undefined) row.internalNotes = dto.internalNotes;
     if (dto.assignedAdminId !== undefined)
@@ -201,7 +246,16 @@ export class ServiceRequestsService {
         saved.assignedVendorUserId,
       );
     }
-    if (dto.status !== undefined && previousStatus !== saved.status) {
+    if (dto.emailNotifications?.enabled) {
+      this.notifier.notifyConfiguredUpdate(saved, {
+        previousStatus,
+        previousVendorUserId,
+        config: dto.emailNotifications,
+      });
+    } else if (
+      dto.status !== undefined &&
+      previousStatus !== saved.status
+    ) {
       this.notifier.notifyStatusChange(saved, previousStatus);
     }
     return this.map(saved);
@@ -228,12 +282,14 @@ export class ServiceRequestsService {
     const byType = {
       [ServiceType.PACKERS_MOVERS]: this.emptyStatusMap(),
       [ServiceType.PAINTING_CLEANING]: this.emptyStatusMap(),
+      [ServiceType.HOME_SERVICES]: this.emptyStatusMap(),
       [ServiceType.EVENT_MANAGEMENT]: this.emptyStatusMap(),
     } as Record<ServiceType, Record<ServiceRequestStatus, number>>;
 
     const totals: Record<ServiceType, number> = {
       [ServiceType.PACKERS_MOVERS]: 0,
       [ServiceType.PAINTING_CLEANING]: 0,
+      [ServiceType.HOME_SERVICES]: 0,
       [ServiceType.EVENT_MANAGEMENT]: 0,
     };
     let openTotal = 0;
@@ -294,6 +350,9 @@ export class ServiceRequestsService {
       internalNotes: r.internalNotes,
       assignedAdminId: r.assignedAdminId,
       assignedVendorUserId: r.assignedVendorUserId,
+      customerRating: r.customerRating,
+      customerFeedback: r.customerFeedback,
+      customerReviewedAt: r.customerReviewedAt,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
     };

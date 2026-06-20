@@ -10,6 +10,7 @@ import {
 export enum ServiceType {
   PACKERS_MOVERS = 'packers_movers',
   PAINTING_CLEANING = 'painting_cleaning',
+  HOME_SERVICES = 'home_services',
   EVENT_MANAGEMENT = 'event_management',
 }
 
@@ -75,6 +76,14 @@ export interface PaintingCleaningDetails {
   notes?: string | null;
 }
 
+export interface HomeServicesDetails {
+  subType: 'carpenter' | 'plumber' | 'electrician';
+  propertyType: 'apartment' | 'villa' | 'office';
+  bhkOrSqft: string;
+  location?: Stop;
+  notes?: string | null;
+}
+
 export interface EventManagementDetails {
   eventType: 'birthday' | 'wedding' | 'baby_shower' | 'corporate';
   venueType: 'home' | 'banquet' | 'hotel' | 'outdoor' | 'office' | 'other';
@@ -97,6 +106,7 @@ export interface EventManagementDetails {
 export type ServiceRequestDetails =
   | PackersMoversDetails
   | PaintingCleaningDetails
+  | HomeServicesDetails
   | EventManagementDetails;
 
 @Entity('service_requests')
@@ -156,6 +166,15 @@ export class ServiceRequest {
   @Index()
   @Column({ type: 'int', nullable: true })
   assignedVendorUserId: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  customerRating: number | null;
+
+  @Column({ type: 'text', nullable: true })
+  customerFeedback: string | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  customerReviewedAt: Date | null;
 
   @CreateDateColumn()
   createdAt: Date;

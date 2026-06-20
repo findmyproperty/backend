@@ -5,24 +5,18 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import nodemailer from 'nodemailer';
 import { UsersService } from '../users/users.service';
 import { CreateContactDto } from './dto/create-contact.dto';
 import { escapeHtmlForEmail } from '../helper/escape-html';
-
-interface MailTransporter {
-  sendMail(
-    options: nodemailer.SendMailOptions,
-  ): Promise<nodemailer.SentMessageInfo>;
-}
+import { MailService } from '../mail/mail.service';
+import { EmailLogStatus } from '../mail/entities/email-log.entity';
 
 @Injectable()
 export class ContactService {
-  private mailTransporter: MailTransporter | null = null;
-
   constructor(
     private readonly configService: ConfigService,
     private readonly usersService: UsersService,
+    private readonly mail: MailService,
   ) {}
 
   async sendToAdmins(dto: CreateContactDto): Promise<{ message: string }> {
@@ -37,11 +31,6 @@ export class ContactService {
       throw new ServiceUnavailableException(
         'Contact is unavailable: no admin email on file.',
       );
-    }
-
-    const from = this.configService.get<string>('SMTP_FROM');
-    if (!from) {
-      throw new InternalServerErrorException('SMTP is not configured.');
     }
 
     const subject =
@@ -72,48 +61,32 @@ ${dto.message.trim()}
       </div>
     `;
 
-    const transporter = this.getMailTransporter();
+    let delivered = 0;
+    for (const admin of admins) {
+      if (!admin.email?.trim()) continue;
+      const result = await this.mail.send({
+        templateKey: 'contact.admin_new',
+        feature: 'contact',
+        triggerEvent: 'form_submitted',
+        to: admin.email,
+        subject,
+        text,
+        html,
+        replyTo: dto.email.trim(),
+        recipientUserId: admin.id,
+        recipientRole: 'admin',
+        metadata: { senderEmail: dto.email.trim(), senderName: dto.name.trim() },
+      });
+      if (result.status === EmailLogStatus.SENT) delivered += 1;
+    }
 
-    try {
-      for (const to of adminEmails) {
-        await transporter.sendMail({
-          from,
-          to,
-          replyTo: dto.email.trim(),
-          subject,
-          text,
-          html,
-        });
-      }
-    } catch (e) {
-      console.error('Contact form email failed', e);
+    if (delivered === 0) {
       throw new InternalServerErrorException(
         'Could not send your message. Please try again later.',
       );
     }
 
     return { message: 'Your message has been sent.' };
-  }
-
-  private getMailTransporter(): MailTransporter {
-    if (this.mailTransporter) return this.mailTransporter;
-    const host = this.configService.get<string>('SMTP_HOST');
-    const port = Number(this.configService.get<string>('SMTP_PORT') || 0);
-    const user = this.configService.get<string>('SMTP_USER');
-    const pass = this.configService.get<string>('SMTP_PASS');
-
-    if (!host || !port || !user || !pass) {
-      throw new InternalServerErrorException('SMTP configuration missing.');
-    }
-
-    const transport = nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465,
-      auth: { user, pass },
-    });
-    this.mailTransporter = transport as MailTransporter;
-    return this.mailTransporter;
   }
 
   /** When `RECAPTCHA_SECRET_KEY` or `CONTACT_RECAPTCHA_SECRET` is set, token is required and verified with Google. */

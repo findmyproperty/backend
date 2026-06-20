@@ -1,11 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import nodemailer from 'nodemailer';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { UsersService } from '../users/users.service';
+import { MailService } from '../mail/mail.service';
+import { VendorProfile } from '../vendors/entities/vendor-profile.entity';
 import { escapeHtmlForEmail } from '../helper/escape-html';
 import { BRAND_COLOR } from '../helper/email-theme';
 import {
   EventManagementDetails,
+  HomeServicesDetails,
   PackersMoversDetails,
   PaintingCleaningDetails,
   ServiceRequest,
@@ -13,18 +16,40 @@ import {
   ServiceType,
   Stop,
 } from './entities/service-request.entity';
-
-interface MailTransporter {
-  sendMail(
-    options: nodemailer.SendMailOptions,
-  ): Promise<nodemailer.SentMessageInfo>;
-}
+import {
+  ServiceRequestEmailNotificationsDto,
+  ServiceRequestEmailRecipient,
+} from './dto/service-request-email-notifications.dto';
 
 const SERVICE_LABELS: Record<ServiceType, string> = {
   [ServiceType.PACKERS_MOVERS]: 'Packers & Movers',
   [ServiceType.PAINTING_CLEANING]: 'Painting & Cleaning',
+  [ServiceType.HOME_SERVICES]: 'Home Services',
   [ServiceType.EVENT_MANAGEMENT]: 'Event Management',
 };
+
+const VENDOR_CATEGORY_LABELS: Record<string, string> = {
+  real_estate: 'Real estate',
+  home_services: 'Home services',
+  packers: 'Packers & movers',
+  lawyer: 'Lawyer',
+  ca: 'Chartered accountant',
+  web_designer: 'Web designer',
+  trainer: 'Trainer',
+  tutor: 'Tutor',
+  other: 'Other',
+};
+
+interface VendorContactInfo {
+  userId: number;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  businessName: string | null;
+  category: string | null;
+  serviceLocations: string[] | null;
+  workingHours: string | null;
+}
 
 /**
  * Fire-and-forget notifier. All methods swallow errors (after logging) so
@@ -34,11 +59,12 @@ const SERVICE_LABELS: Record<ServiceType, string> = {
 @Injectable()
 export class ServiceRequestsNotifier {
   private readonly logger = new Logger(ServiceRequestsNotifier.name);
-  private mailTransporter: MailTransporter | null = null;
 
   constructor(
-    private readonly configService: ConfigService,
     private readonly usersService: UsersService,
+    private readonly mail: MailService,
+    @InjectRepository(VendorProfile)
+    private readonly vendorProfileRepo: Repository<VendorProfile>,
   ) {}
 
   notifyAdminsOfNewRequest(request: ServiceRequest): void {
@@ -47,6 +73,13 @@ export class ServiceRequestsNotifier {
         `Failed to notify admins for service request #${request.id}: ${String(err)}`,
       );
     });
+    if (request.email) {
+      void this.sendCustomerConfirmation(request).catch((err: unknown) => {
+        this.logger.error(
+          `Failed to confirm service request #${request.id} to customer: ${String(err)}`,
+        );
+      });
+    }
   }
 
   notifyStatusChange(
@@ -64,50 +97,552 @@ export class ServiceRequestsNotifier {
     );
   }
 
+  notifyConfiguredUpdate(
+    request: ServiceRequest,
+    context: {
+      previousStatus: ServiceRequestStatus;
+      previousVendorUserId: number | null;
+      config: ServiceRequestEmailNotificationsDto;
+    },
+  ): void {
+    if (!context.config.enabled) return;
+    void this.sendConfiguredUpdateEmails(request, context).catch(
+      (err: unknown) => {
+        this.logger.error(
+          `Failed configured notifications for service request #${request.id}: ${String(err)}`,
+        );
+      },
+    );
+  }
+
   private async sendNewRequestEmail(request: ServiceRequest): Promise<void> {
     const admins = await this.usersService.findAllAdmins();
-    const adminEmails = admins
-      .map((a) => a.email)
-      .filter((e): e is string => Boolean(e?.trim()));
-
-    if (adminEmails.length === 0) {
-      this.logger.warn(
-        `No admin emails on file; skipping notification for service request #${request.id}`,
-      );
-      return;
-    }
-
-    const from = this.configService.get<string>('SMTP_FROM');
-    if (!from) {
-      this.logger.warn('SMTP_FROM not configured; skipping admin notification');
-      return;
-    }
-
-    const transporter = this.getMailTransporter();
-    if (!transporter) return;
-
     const label = SERVICE_LABELS[request.serviceType] ?? request.serviceType;
     const subject = `New ${label} request — ${request.name}`;
-
     const html = this.buildAdminHtml(request, label);
     const text = this.buildAdminText(request, label);
 
-    for (const to of adminEmails) {
-      try {
-        await transporter.sendMail({
-          from,
-          to,
-          replyTo: request.email ?? undefined,
-          subject,
-          text,
-          html,
+    if (admins.length === 0) {
+      await this.mail.logSkipped({
+        templateKey: 'service_request.admin_new',
+        feature: 'service_request',
+        triggerEvent: 'created',
+        to: 'admins@none',
+        subject,
+        skippedReason: 'no_admin_emails',
+        entityType: 'service_request',
+        entityId: request.id,
+      });
+      return;
+    }
+
+    for (const admin of admins) {
+      if (!admin.email?.trim()) continue;
+      await this.mail.send({
+        templateKey: 'service_request.admin_new',
+        feature: 'service_request',
+        triggerEvent: 'created',
+        to: admin.email,
+        subject,
+        text,
+        html,
+        replyTo: request.email ?? undefined,
+        recipientUserId: admin.id,
+        recipientRole: 'admin',
+        entityType: 'service_request',
+        entityId: request.id,
+      });
+    }
+  }
+
+  private async sendCustomerConfirmation(
+    request: ServiceRequest,
+  ): Promise<void> {
+    const label = SERVICE_LABELS[request.serviceType] ?? request.serviceType;
+    const subject = `We received your ${label} request`;
+    const html = `
+      <div style="font-family:system-ui,sans-serif;max-width:560px">
+        <h2 style="color:${BRAND_COLOR}">Thank you</h2>
+        <p>Hi ${escapeHtmlForEmail(request.name)},</p>
+        <p>We received your <strong>${escapeHtmlForEmail(label)}</strong> request (ID #${request.id}). Our team will contact you shortly.</p>
+      </div>`;
+    const text = `Hi ${request.name},\n\nWe received your ${label} request (ID #${request.id}). Our team will contact you shortly.`;
+
+    await this.mail.send({
+      templateKey: 'service_request.customer_confirmation',
+      feature: 'service_request',
+      triggerEvent: 'created',
+      to: request.email!,
+      subject,
+      text,
+      html,
+      recipientUserId: request.userId,
+      recipientRole: 'customer',
+      entityType: 'service_request',
+      entityId: request.id,
+    });
+  }
+
+  private async sendConfiguredUpdateEmails(
+    request: ServiceRequest,
+    context: {
+      previousStatus: ServiceRequestStatus;
+      previousVendorUserId: number | null;
+      config: ServiceRequestEmailNotificationsDto;
+    },
+  ): Promise<void> {
+    const label = SERVICE_LABELS[request.serviceType] ?? request.serviceType;
+    const events = new Set(context.config.events);
+    const recipients = new Set(context.config.recipients);
+    const emailsByRecipient = await this.resolveRecipientEmails(
+      request,
+      recipients,
+    );
+    const admins = recipients.has('admin')
+      ? await this.usersService.findAllAdmins()
+      : [];
+
+    const payloads: Array<{
+      recipient: ServiceRequestEmailRecipient;
+      subject: string;
+      text: string;
+      html: string;
+    }> = [];
+
+    if (
+      events.has('status_changed') &&
+      context.previousStatus !== request.status
+    ) {
+      for (const recipient of recipients) {
+        payloads.push({
+          recipient,
+          subject: `${label} request #${request.id} status updated`,
+          text: this.buildStatusChangedText(
+            request,
+            label,
+            context.previousStatus,
+            recipient,
+          ),
+          html: this.buildStatusChangedHtml(
+            request,
+            label,
+            context.previousStatus,
+            recipient,
+          ),
         });
+      }
+    }
+
+    if (
+      events.has('completed') &&
+      request.status === ServiceRequestStatus.COMPLETED
+    ) {
+      for (const recipient of recipients) {
+        payloads.push({
+          recipient,
+          subject: `${label} request #${request.id} completed`,
+          text: this.buildCompletedText(request, label, recipient),
+          html: this.buildCompletedHtml(request, label, recipient),
+        });
+      }
+    }
+
+    if (
+      events.has('vendor_assigned') &&
+      request.assignedVendorUserId != null &&
+      request.assignedVendorUserId !== context.previousVendorUserId
+    ) {
+      const vendor = await this.resolveVendorContact(
+        request.assignedVendorUserId,
+      );
+      for (const recipient of recipients) {
+        payloads.push({
+          recipient,
+          subject: `Vendor assigned to ${label} request #${request.id}`,
+          text: this.buildVendorAssignedText(
+            request,
+            label,
+            recipient,
+            vendor,
+          ),
+          html: this.buildVendorAssignedHtml(
+            request,
+            label,
+            recipient,
+            vendor,
+          ),
+        });
+      }
+    }
+
+    for (const payload of payloads) {
+      const to = emailsByRecipient.get(payload.recipient) ?? [];
+      for (const email of to) {
+        const recipientUserId =
+          payload.recipient === 'customer'
+            ? (request.userId ?? null)
+            : payload.recipient === 'vendor'
+              ? request.assignedVendorUserId
+              : (admins.find((a) => a.email === email)?.id ?? null);
+
+        await this.mail.send({
+          templateKey: `service_request.${payload.recipient}_update`,
+          feature: 'service_request',
+          triggerEvent: payload.subject.includes('Vendor assigned')
+            ? 'vendor_assigned'
+            : payload.subject.includes('completed')
+              ? 'completed'
+              : 'status_changed',
+          to: email,
+          subject: payload.subject,
+          text: payload.text,
+          html: payload.html,
+          recipientUserId,
+          recipientRole: payload.recipient,
+          entityType: 'service_request',
+          entityId: request.id,
+          metadata: {
+            previousStatus: context.previousStatus,
+            nextStatus: request.status,
+            events: [...events],
+          },
+        });
+      }
+    }
+  }
+
+  private async resolveRecipientEmails(
+    request: ServiceRequest,
+    recipients: Set<ServiceRequestEmailRecipient>,
+  ): Promise<Map<ServiceRequestEmailRecipient, string[]>> {
+    const emails = new Map<ServiceRequestEmailRecipient, string[]>();
+
+    if (recipients.has('customer') && request.email?.trim()) {
+      emails.set('customer', [request.email.trim()]);
+    }
+
+    if (recipients.has('admin')) {
+      const admins = await this.usersService.findAllAdmins();
+      const adminEmails = admins
+        .map((a) => a.email)
+        .filter((e): e is string => Boolean(e?.trim()));
+      emails.set('admin', adminEmails);
+    }
+
+    if (recipients.has('vendor') && request.assignedVendorUserId != null) {
+      try {
+        const vendor = await this.usersService.findOne(
+          request.assignedVendorUserId,
+        );
+        if (vendor.email?.trim()) {
+          emails.set('vendor', [vendor.email.trim()]);
+        }
       } catch (e) {
-        this.logger.error(
-          `Admin notification email to ${to} failed: ${String(e)}`,
+        this.logger.warn(
+          `Could not resolve vendor email for service request #${request.id}: ${String(e)}`,
         );
       }
     }
+
+    return emails;
+  }
+
+  private buildStatusChangedText(
+    request: ServiceRequest,
+    label: string,
+    previousStatus: ServiceRequestStatus,
+    recipient: ServiceRequestEmailRecipient,
+  ): string {
+    const intro =
+      recipient === 'customer'
+        ? `Hi ${request.name},`
+        : recipient === 'vendor'
+          ? 'Hi,'
+          : 'Admin update:';
+    return [
+      intro,
+      '',
+      `The ${label} service request #${request.id} changed from "${previousStatus}" to "${request.status}".`,
+      `Customer: ${request.name}`,
+      `Phone: ${request.phone}`,
+    ].join('\n');
+  }
+
+  private buildStatusChangedHtml(
+    request: ServiceRequest,
+    label: string,
+    previousStatus: ServiceRequestStatus,
+    recipient: ServiceRequestEmailRecipient,
+  ): string {
+    const intro =
+      recipient === 'customer'
+        ? `Hi ${escapeHtmlForEmail(request.name)},`
+        : recipient === 'vendor'
+          ? 'Hi,'
+          : 'Admin update:';
+    return `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <p>${intro}</p>
+        <p>The <b>${escapeHtmlForEmail(label)}</b> service request <b>#${request.id}</b> changed from
+          <b>${escapeHtmlForEmail(previousStatus)}</b> to <b>${escapeHtmlForEmail(request.status)}</b>.</p>
+        <p>Customer: ${escapeHtmlForEmail(request.name)}<br/>Phone: ${escapeHtmlForEmail(request.phone)}</p>
+      </div>
+    `;
+  }
+
+  private buildCompletedText(
+    request: ServiceRequest,
+    label: string,
+    recipient: ServiceRequestEmailRecipient,
+  ): string {
+    const intro =
+      recipient === 'customer'
+        ? `Hi ${request.name},`
+        : recipient === 'vendor'
+          ? 'Hi,'
+          : 'Admin update:';
+    return [
+      intro,
+      '',
+      `The ${label} service request #${request.id} has been marked completed.`,
+      `Customer: ${request.name}`,
+    ].join('\n');
+  }
+
+  private buildCompletedHtml(
+    request: ServiceRequest,
+    label: string,
+    recipient: ServiceRequestEmailRecipient,
+  ): string {
+    const intro =
+      recipient === 'customer'
+        ? `Hi ${escapeHtmlForEmail(request.name)},`
+        : recipient === 'vendor'
+          ? 'Hi,'
+          : 'Admin update:';
+    return `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <p>${intro}</p>
+        <p>The <b>${escapeHtmlForEmail(label)}</b> service request <b>#${request.id}</b> has been marked <b>completed</b>.</p>
+        <p>Customer: ${escapeHtmlForEmail(request.name)}</p>
+      </div>
+    `;
+  }
+
+  private async resolveVendorContact(
+    userId: number,
+  ): Promise<VendorContactInfo | null> {
+    try {
+      const user = await this.usersService.findOne(userId);
+      const profile = await this.vendorProfileRepo.findOneBy({ userId });
+      return {
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        businessName: profile?.businessName ?? null,
+        category: profile?.category ?? null,
+        serviceLocations: profile?.serviceLocations ?? null,
+        workingHours: profile?.workingHours ?? null,
+      };
+    } catch (e) {
+      this.logger.warn(
+        `Could not resolve vendor contact for user #${userId}: ${String(e)}`,
+      );
+      return null;
+    }
+  }
+
+  private buildCustomerContactRows(
+    request: ServiceRequest,
+  ): Array<[string, string]> {
+    const rows: Array<[string, string]> = [
+      ['Name', request.name],
+      ['Phone', request.phone],
+    ];
+    if (request.email) rows.push(['Email', request.email]);
+    if (request.city) rows.push(['City', request.city]);
+    if (request.addressLine) rows.push(['Address', request.addressLine]);
+    if (request.pincode) rows.push(['Pincode', request.pincode]);
+    if (request.preferredDate)
+      rows.push(['Preferred date', String(request.preferredDate)]);
+    if (request.preferredSlot)
+      rows.push(['Preferred slot', request.preferredSlot]);
+    return rows;
+  }
+
+  private buildVendorContactRows(
+    vendor: VendorContactInfo | null,
+  ): Array<[string, string]> {
+    if (!vendor) return [['Vendor', 'Details unavailable']];
+    const rows: Array<[string, string]> = [];
+    const displayName =
+      vendor.businessName?.trim() || vendor.name?.trim() || `Vendor #${vendor.userId}`;
+    rows.push(['Business / name', displayName]);
+    if (vendor.name?.trim() && vendor.businessName?.trim())
+      rows.push(['Contact person', vendor.name.trim()]);
+    if (vendor.phone?.trim()) rows.push(['Phone', vendor.phone.trim()]);
+    if (vendor.email?.trim()) rows.push(['Email', vendor.email.trim()]);
+    if (vendor.category) {
+      rows.push([
+        'Category',
+        VENDOR_CATEGORY_LABELS[vendor.category] ?? vendor.category,
+      ]);
+    }
+    if (vendor.serviceLocations?.length) {
+      rows.push(['Service locations', vendor.serviceLocations.join(', ')]);
+    }
+    if (vendor.workingHours?.trim()) {
+      rows.push(['Working hours', vendor.workingHours.trim()]);
+    }
+    return rows;
+  }
+
+  private buildCustomerContactText(request: ServiceRequest): string {
+    return this.buildCustomerContactRows(request)
+      .map(([label, value]) => `${label}: ${value}`)
+      .join('\n');
+  }
+
+  private buildVendorContactText(vendor: VendorContactInfo | null): string {
+    return this.buildVendorContactRows(vendor)
+      .map(([label, value]) => `${label}: ${value}`)
+      .join('\n');
+  }
+
+  private buildInfoTableHtml(
+    title: string,
+    rows: Array<[string, string]>,
+  ): string {
+    if (rows.length === 0) return '';
+    return `
+      <h3 style="margin:16px 0 8px; font-size:14px; text-transform:uppercase; letter-spacing:0.5px; color:#6b7280;">${escapeHtmlForEmail(title)}</h3>
+      <table cellpadding="6" cellspacing="0" style="border-collapse:collapse; width:100%;">
+        ${rows
+          .map(
+            ([key, value]) =>
+              `<tr><td style="border:1px solid #eee; width:160px;"><b>${escapeHtmlForEmail(key)}</b></td><td style="border:1px solid #eee;">${escapeHtmlForEmail(value)}</td></tr>`,
+          )
+          .join('')}
+      </table>
+    `;
+  }
+
+  private buildRequestContentText(request: ServiceRequest): string {
+    const lines: string[] = [`Service: ${SERVICE_LABELS[request.serviceType] ?? request.serviceType}`];
+    this.appendRequestDetailLines(lines, request);
+    return lines.join('\n');
+  }
+
+  private buildRequestContentHtml(
+    request: ServiceRequest,
+    title = 'Request details',
+  ): string {
+    const detailsHtml = request.details ? this.buildDetailsHtml(request) : '';
+    if (!detailsHtml) {
+      return this.buildInfoTableHtml(title, [
+        ['Service', SERVICE_LABELS[request.serviceType] ?? request.serviceType],
+      ]);
+    }
+    return `
+      <h3 style="margin:16px 0 8px; font-size:14px; text-transform:uppercase; letter-spacing:0.5px; color:#6b7280;">${escapeHtmlForEmail(title)}</h3>
+      <p style="margin:0 0 8px;"><b>Service:</b> ${escapeHtmlForEmail(SERVICE_LABELS[request.serviceType] ?? request.serviceType)}</p>
+      ${detailsHtml}
+    `;
+  }
+
+  private buildVendorAssignedText(
+    request: ServiceRequest,
+    label: string,
+    recipient: ServiceRequestEmailRecipient,
+    vendor: VendorContactInfo | null,
+  ): string {
+    const vendorName =
+      vendor?.name?.trim() ||
+      vendor?.businessName?.trim() ||
+      'there';
+    const intro =
+      recipient === 'customer'
+        ? `Hi ${request.name},`
+        : recipient === 'vendor'
+          ? `Hi ${vendorName},`
+          : 'Admin update:';
+    const detail =
+      recipient === 'vendor'
+        ? `You were assigned to the ${label} service request #${request.id}.`
+        : `A vendor was assigned to the ${label} service request #${request.id}.`;
+
+    const sections: string[] = [intro, '', detail, ''];
+
+    if (recipient === 'admin' || recipient === 'vendor') {
+      sections.push('-- Customer details --', this.buildCustomerContactText(request), '');
+    }
+    if (recipient === 'admin' || recipient === 'customer') {
+      sections.push('-- Vendor details --', this.buildVendorContactText(vendor), '');
+    }
+    sections.push(
+      recipient === 'customer'
+        ? '-- Your request details --'
+        : '-- Request details --',
+      this.buildRequestContentText(request),
+    );
+
+    return sections.join('\n');
+  }
+
+  private buildVendorAssignedHtml(
+    request: ServiceRequest,
+    label: string,
+    recipient: ServiceRequestEmailRecipient,
+    vendor: VendorContactInfo | null,
+  ): string {
+    const vendorName =
+      vendor?.name?.trim() ||
+      vendor?.businessName?.trim() ||
+      'there';
+    const intro =
+      recipient === 'customer'
+        ? `Hi ${escapeHtmlForEmail(request.name)},`
+        : recipient === 'vendor'
+          ? `Hi ${escapeHtmlForEmail(vendorName)},`
+          : 'Admin update:';
+    const detail =
+      recipient === 'vendor'
+        ? `You were assigned to the <b>${escapeHtmlForEmail(label)}</b> service request <b>#${request.id}</b>.`
+        : `A vendor was assigned to the <b>${escapeHtmlForEmail(label)}</b> service request <b>#${request.id}</b>.`;
+
+    const sections: string[] = [];
+    if (recipient === 'admin' || recipient === 'vendor') {
+      sections.push(
+        this.buildInfoTableHtml(
+          'Customer details',
+          this.buildCustomerContactRows(request),
+        ),
+      );
+    }
+    if (recipient === 'admin' || recipient === 'customer') {
+      sections.push(
+        this.buildInfoTableHtml(
+          recipient === 'customer' ? 'Assigned vendor' : 'Vendor details',
+          this.buildVendorContactRows(vendor),
+        ),
+      );
+    }
+    sections.push(
+      this.buildRequestContentHtml(
+        request,
+        recipient === 'customer' ? 'Your request details' : 'Request details',
+      ),
+    );
+
+    return `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 640px;">
+        <h2 style="margin:0 0 16px;">Vendor assigned — ${escapeHtmlForEmail(label)} request #${request.id}</h2>
+        <p>${intro}</p>
+        <p>${detail}</p>
+        ${sections.join('')}
+      </div>
+    `;
   }
 
   private async sendStatusChangeEmail(
@@ -115,10 +650,6 @@ export class ServiceRequestsNotifier {
     previousStatus: ServiceRequestStatus,
   ): Promise<void> {
     if (!request.email) return;
-    const from = this.configService.get<string>('SMTP_FROM');
-    if (!from) return;
-    const transporter = this.getMailTransporter();
-    if (!transporter) return;
 
     const label = SERVICE_LABELS[request.serviceType] ?? request.serviceType;
     const subject = `Your ${label} request update`;
@@ -133,19 +664,20 @@ export class ServiceRequestsNotifier {
     `;
     const text = `Hi ${request.name},\n\nYour ${label} request (ID #${request.id}) is now "${request.status}" (was "${previousStatus}").`;
 
-    try {
-      await transporter.sendMail({
-        from,
-        to: request.email,
-        subject,
-        text,
-        html,
-      });
-    } catch (e) {
-      this.logger.error(
-        `Customer status email to ${request.email} failed: ${String(e)}`,
-      );
-    }
+    await this.mail.send({
+      templateKey: 'service_request.customer_status',
+      feature: 'service_request',
+      triggerEvent: 'status_changed',
+      to: request.email,
+      subject,
+      text,
+      html,
+      recipientUserId: request.userId,
+      recipientRole: 'customer',
+      entityType: 'service_request',
+      entityId: request.id,
+      metadata: { previousStatus, nextStatus: request.status },
+    });
   }
 
   // -----------------------------------------------------------------
@@ -207,9 +739,12 @@ export class ServiceRequestsNotifier {
         request.details as PackersMoversDetails,
       );
     }
-    if (request.serviceType === ServiceType.PAINTING_CLEANING) {
+    if (
+      request.serviceType === ServiceType.PAINTING_CLEANING ||
+      request.serviceType === ServiceType.HOME_SERVICES
+    ) {
       return this.buildPaintingCleaningHtml(
-        request.details as PaintingCleaningDetails,
+        request.details as PaintingCleaningDetails | HomeServicesDetails,
       );
     }
     if (request.serviceType === ServiceType.EVENT_MANAGEMENT) {
@@ -293,7 +828,9 @@ export class ServiceRequestsNotifier {
     `;
   }
 
-  private buildPaintingCleaningHtml(d: PaintingCleaningDetails): string {
+  private buildPaintingCleaningHtml(
+    d: PaintingCleaningDetails | HomeServicesDetails,
+  ): string {
     const subTypeLabel: Record<string, string> = {
       full_painting: 'Full home painting',
       partial_painting: 'Partial / room painting',
@@ -301,6 +838,9 @@ export class ServiceRequestsNotifier {
       bathroom_cleaning: 'Bathroom cleaning',
       sofa_cleaning: 'Sofa / upholstery cleaning',
       kitchen_cleaning: 'Kitchen deep cleaning',
+      carpenter: 'Carpenter',
+      plumber: 'Plumber',
+      electrician: 'Electrician',
     };
     const propertyTypeLabel: Record<string, string> = {
       apartment: 'Apartment',
@@ -464,6 +1004,14 @@ export class ServiceRequestsNotifier {
       lines.push(`Preferred slot: ${request.preferredSlot}`);
     if (request.userId) lines.push(`Linked user ID: ${request.userId}`);
 
+    this.appendRequestDetailLines(lines, request);
+    return lines.join('\n');
+  }
+
+  private appendRequestDetailLines(
+    lines: string[],
+    request: ServiceRequest,
+  ): void {
     const d = request.details;
     if (request.serviceType === ServiceType.PACKERS_MOVERS && d) {
       const pm = d as PackersMoversDetails;
@@ -497,8 +1045,12 @@ export class ServiceRequestsNotifier {
         lines.push(`Drop address: ${pm.dropAddress}`);
       }
       if (pm.notes) lines.push(``, `Customer notes:`, pm.notes);
-    } else if (request.serviceType === ServiceType.PAINTING_CLEANING && d) {
-      const pc = d as PaintingCleaningDetails;
+    } else if (
+      (request.serviceType === ServiceType.PAINTING_CLEANING ||
+        request.serviceType === ServiceType.HOME_SERVICES) &&
+      d
+    ) {
+      const pc = d as PaintingCleaningDetails | HomeServicesDetails;
       lines.push(``, `-- Service details --`);
       lines.push(`Service: ${pc.subType}`);
       lines.push(`Property type: ${pc.propertyType}`);
@@ -525,7 +1077,6 @@ export class ServiceRequestsNotifier {
       }
       if (em.notes) lines.push(``, `Customer notes:`, em.notes);
     }
-    return lines.join('\n');
   }
 
   private mapLinkFor(stop: Stop): string {
@@ -543,27 +1094,4 @@ export class ServiceRequestsNotifier {
     return m === 0 ? `${h}h` : `${h}h ${m}m`;
   }
 
-  private getMailTransporter(): MailTransporter | null {
-    if (this.mailTransporter) return this.mailTransporter;
-    const host = this.configService.get<string>('SMTP_HOST');
-    const port = Number(this.configService.get<string>('SMTP_PORT') || 0);
-    const user = this.configService.get<string>('SMTP_USER');
-    const pass = this.configService.get<string>('SMTP_PASS');
-
-    if (!host || !port || !user || !pass) {
-      this.logger.warn(
-        'SMTP not configured; service-request notifications will be skipped.',
-      );
-      return null;
-    }
-
-    const transport = nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465,
-      auth: { user, pass },
-    });
-    this.mailTransporter = transport as MailTransporter;
-    return this.mailTransporter;
-  }
 }

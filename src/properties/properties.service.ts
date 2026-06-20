@@ -8,7 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository, Brackets, SelectQueryBuilder } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import nodemailer from 'nodemailer';
+import { MailService } from '../mail/mail.service';
 import { CreatePropertyDto, PropertyStatus, ListingType } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { ApprovePropertyDto } from './dto/approve-property.dto';
@@ -42,12 +42,6 @@ export interface AdminPropertyStatusCounts {
   total: number;
 }
 
-interface MailTransporter {
-  sendMail(
-    options: nodemailer.SendMailOptions,
-  ): Promise<nodemailer.SentMessageInfo>;
-}
-
 /** Public fields for `agent` / `creator` on property API responses. */
 export interface PropertyUserSummary {
   id: number;
@@ -67,8 +61,6 @@ export interface PropertyCommentItem {
 
 @Injectable()
 export class PropertiesService {
-  private mailTransporter: MailTransporter | null = null;
-
   constructor(
     @InjectRepository(Property)
     private readonly propertyRepository: Repository<Property>,
@@ -76,6 +68,7 @@ export class PropertiesService {
     private readonly propertyCommentRepository: Repository<PropertyComment>,
     private configService: ConfigService,
     private readonly usersService: UsersService,
+    private readonly mail: MailService,
   ) {}
 
   getListingAgentUserId(property: Property): number | null {
@@ -243,12 +236,6 @@ export class PropertiesService {
     options?: { isResubmission?: boolean },
   ) {
     const admins = await this.usersService.findAllAdmins();
-    const adminEmails = admins.map((admin) => admin.email).filter(Boolean) as string[];
-    const from = this.configService.get<string>('SMTP_FROM');
-
-    if (!adminEmails.length || !from) return;
-
-    const transporter = this.getMailTransporter();
     const frontendUrl = this.configService.get<string>('CLIENT_APPROVAL_URL');
 
     const isResubmission = options?.isResubmission === true;
@@ -268,18 +255,23 @@ export class PropertiesService {
             <a href="${frontendUrl}" style="display:inline-block;padding:10px 15px;background-color:${BRAND_COLOR};color:${BRAND_ON_COLOR};text-decoration:none;border-radius:5px;">Review Properties</a>
           `;
 
-    try {
-      for (const adminEmail of adminEmails) {
-        await transporter.sendMail({
-          from,
-          to: adminEmail,
-          subject,
-          text,
-          html,
-        });
-      }
-    } catch (e) {
-      console.error('Failed to notify admin via email', e);
+    for (const admin of admins) {
+      if (!admin.email?.trim()) continue;
+      await this.mail.send({
+        templateKey: isResubmission
+          ? 'property.admin_resubmitted'
+          : 'property.admin_pending',
+        feature: 'property',
+        triggerEvent: isResubmission ? 'resubmitted' : 'created',
+        to: admin.email,
+        subject,
+        text,
+        html,
+        recipientUserId: admin.id,
+        recipientRole: 'admin',
+        entityType: 'property',
+        entityId: property.id,
+      });
     }
   }
 
@@ -288,19 +280,16 @@ export class PropertiesService {
     email: string,
     name?: string | null,
   ) {
-    const from = this.configService.get<string>('SMTP_FROM');
-    if (!from) return;
-
-    const transporter = this.getMailTransporter();
     const propertyUrl = `${this.configService.get<string>('CLIENT_URL')}/properties/${property.id}`;
 
-    try {
-      await transporter.sendMail({
-        from,
-        to: email,
-        subject: 'Property Approved!',
-        text: `Congratulations${name ? ` ${name}` : ''}! Your property "${property.title}" has been approved and is now live. View it here: ${propertyUrl}`,
-        html: `
+    await this.mail.send({
+      templateKey: 'property.creator_approved',
+      feature: 'property',
+      triggerEvent: 'approved',
+      to: email,
+      subject: 'Property Approved!',
+      text: `Congratulations${name ? ` ${name}` : ''}! Your property "${property.title}" has been approved and is now live. View it here: ${propertyUrl}`,
+      html: `
           <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
             <h2 style="color: #28a745;">Property Approved!</h2>
             <p>Congratulations${name ? ` <b>${name}</b>` : ''},</p>
@@ -310,10 +299,11 @@ export class PropertiesService {
             <p style="margin-top: 20px;">Thank you for using our platform!</p>
           </div>
         `,
-      });
-    } catch (e) {
-      console.error('Failed to notify creator via email', e);
-    }
+      recipientUserId: property.createdBy,
+      recipientRole: 'tenant',
+      entityType: 'property',
+      entityId: property.id,
+    });
   }
 
   private async notifyCreatorRejected(
@@ -322,20 +312,17 @@ export class PropertiesService {
     name: string | null | undefined,
     reason: string,
   ) {
-    const from = this.configService.get<string>('SMTP_FROM');
-    if (!from) return;
-
-    const transporter = this.getMailTransporter();
     const frontendUrl =
       this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
     const editUrl = `${frontendUrl}/property/${buildPropertyPath(property.id, property.title)}`;
 
-    try {
-      await transporter.sendMail({
-        from,
-        to: email,
-        subject: `Listing not approved: ${property.title}`,
-        text: `Hello${name ? ` ${name}` : ''},
+    await this.mail.send({
+      templateKey: 'property.creator_rejected',
+      feature: 'property',
+      triggerEvent: 'rejected',
+      to: email,
+      subject: `Listing not approved: ${property.title}`,
+      text: `Hello${name ? ` ${name}` : ''},
 
 Your property listing "${property.title}" was not approved.
 
@@ -344,7 +331,7 @@ ${reason}
 
 You may update your listing and submit it again for review when ready.
 ${editUrl}`,
-        html: `
+      html: `
           <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
             <h2 style="color: #c0392b;">Listing not approved</h2>
             <p>Hello${name ? ` <b>${name}</b>` : ''},</p>
@@ -355,10 +342,12 @@ ${editUrl}`,
             <p><a href="${editUrl}" style="display:inline-block;padding:10px 20px;background-color:#333;color:white;text-decoration:none;border-radius:5px;font-weight:bold;">View listing</a></p>
           </div>
         `,
-      });
-    } catch (e) {
-      console.error('Failed to notify creator about rejection via email', e);
-    }
+      recipientUserId: property.createdBy,
+      recipientRole: 'tenant',
+      entityType: 'property',
+      entityId: property.id,
+      metadata: { reason },
+    });
   }
 
   private async notifyAssignedAgent(
@@ -366,25 +355,23 @@ ${editUrl}`,
     email: string,
     name?: string | null,
   ) {
-    const from = this.configService.get<string>('SMTP_FROM');
-    if (!from) return;
-
-    const transporter = this.getMailTransporter();
     const frontendUrl =
       this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
     const propertyUrl = `${frontendUrl}/properties/${property.id}`;
+    const agentUserId = property.assignedAgentId ?? null;
 
-    try {
-      await transporter.sendMail({
-        from,
-        to: email,
-        subject: `You've been assigned a listing: ${property.title}`,
-        text: `Hello${name ? ` ${name}` : ''},
+    await this.mail.send({
+      templateKey: 'property.agent_assigned',
+      feature: 'property',
+      triggerEvent: 'agent_assigned',
+      to: email,
+      subject: `You've been assigned a listing: ${property.title}`,
+      text: `Hello${name ? ` ${name}` : ''},
 
 You have been assigned as the listing agent for "${property.title}". You will receive tenant enquiries for this property.
 
 View the listing: ${propertyUrl}`,
-        html: `
+      html: `
           <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
             <h2 style="color: ${BRAND_COLOR};">New listing Assigned</h2>
             <p>Hello${name ? ` <b>${name}</b>` : ''},</p>
@@ -393,31 +380,11 @@ View the listing: ${propertyUrl}`,
             <p style="margin-top: 16px; font-size: 14px; color: #666;">If your app has a leads dashboard, open it from your agent account to manage enquiries.</p>
           </div>
         `,
-      });
-    } catch (e) {
-      console.error('Failed to notify assigned agent via email', e);
-    }
-  }
-
-  private getMailTransporter() {
-    if (this.mailTransporter) return this.mailTransporter;
-    const host = this.configService.get<string>('SMTP_HOST');
-    const port = Number(this.configService.get<string>('SMTP_PORT') || 0);
-    const user = this.configService.get<string>('SMTP_USER');
-    const pass = this.configService.get<string>('SMTP_PASS');
-
-    if (!host || !port || !user || !pass) {
-      throw new InternalServerErrorException('SMTP configuration missing.');
-    }
-
-    const transport = nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465,
-      auth: { user, pass },
+      recipientUserId: agentUserId,
+      recipientRole: 'agent',
+      entityType: 'property',
+      entityId: property.id,
     });
-    this.mailTransporter = transport as MailTransporter;
-    return this.mailTransporter;
   }
 
   async findMyProperties(

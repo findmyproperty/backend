@@ -13,8 +13,9 @@ import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomInt } from 'crypto';
-import nodemailer from 'nodemailer';
 import { UpdateMeDto } from './dto/update-me.dto';
+import { MailService } from '../mail/mail.service';
+import { EmailLogStatus } from '../mail/entities/email-log.entity';
 import { UpdateUserDto } from '../users/dto/update-user.dto';
 import { User, UserRole } from '../users/entities/user.entity';
 import { parseDurationToSeconds } from '../helper/duration';
@@ -25,13 +26,6 @@ import { BRAND_COLOR, BRAND_ON_COLOR } from '../helper/email-theme';
 
 /** Fixed OTP used only for local development. */
 const FALLBACK_OTP_CODE = '456789';
-
-/** Mail transporter shape used here to avoid nodemailer typings issues. */
-interface MailTransporter {
-  sendMail(
-    options: nodemailer.SendMailOptions,
-  ): Promise<nodemailer.SentMessageInfo>;
-}
 
 interface VerificationJwtPayload {
   sub: number;
@@ -47,13 +41,13 @@ interface RefreshJwtPayload {
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
-  private mailTransporter: MailTransporter | null = null;
   private twilioClient: Twilio | null = null;
 
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private readonly mail: MailService,
     @Inject(forwardRef(() => VendorsService))
     private vendorsService: VendorsService,
   ) {}
@@ -617,19 +611,14 @@ export class AuthService {
     token: string,
   ) {
     try {
-    const from = this.configService.get<string>('SMTP_FROM');
     const frontendUrl =
       this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
     const verificationLink = `${frontendUrl}/verify-agent?token=${token}`;
 
-    if (!from) {
-      throw new BadRequestException('SMTP_FROM is not configured.');
-    }
-
-    const transporter = this.getMailTransporter();
-
-      await transporter.sendMail({
-        from,
+      const result = await this.mail.send({
+        templateKey: 'auth.agent_verify',
+        feature: 'auth',
+        triggerEvent: 'agent_created',
         to: email,
         subject: 'Welcome to Find My Property - Verify Your Account',
         text: `Hello ${name || 'Agent'},\n\nWelcome to Find My Property! Please verify your account by clicking the following link: ${verificationLink}`,
@@ -644,7 +633,13 @@ export class AuthService {
             <p>This link will expire in 24 hours.</p>
           </div>
         `,
+        recipientRole: 'agent',
       });
+      if (result.status !== EmailLogStatus.SENT) {
+        throw new InternalServerErrorException(
+          'Failed to send verification email.',
+        );
+      }
     } catch (e) {
       this.logger.error(
         `Failed to send agent verification email to ${email}`,
@@ -702,52 +697,21 @@ export class AuthService {
   }
 
   private async sendEmailOtp(email: string, code: string) {
-    const from = this.configService.get<string>('SMTP_FROM');
-    if (!from) {
-      throw new BadRequestException('SMTP_FROM is not configured.');
-    }
-
-    const transporter = this.getMailTransporter();
-    try {
-      await transporter.sendMail({
-        from,
-        to: email,
-        subject: 'Verify your email for Find My Property',
-        text: `Your verification code is ${code}. It expires in ${this.getOtpTtlMinutes()} minutes.`,
-        html: `<p>Your verification code is <b>${code}</b>.</p><p>It expires in ${this.getOtpTtlMinutes()} minutes.</p>`,
-      });
-    } catch {
+    const result = await this.mail.send({
+      templateKey: 'auth.email_otp',
+      feature: 'auth',
+      triggerEvent: 'otp_requested',
+      to: email,
+      subject: 'Verify your email for Find My Property',
+      text: `Your verification code is ${code}. It expires in ${this.getOtpTtlMinutes()} minutes.`,
+      html: `<p>Your verification code is <b>${code}</b>.</p><p>It expires in ${this.getOtpTtlMinutes()} minutes.</p>`,
+      createAlert: false,
+    });
+    if (result.status !== EmailLogStatus.SENT) {
       throw new InternalServerErrorException(
         'Failed to send email OTP. Please try again.',
       );
     }
-  }
-
-  private getMailTransporter() {
-    if (this.mailTransporter) {
-      return this.mailTransporter;
-    }
-
-    const host = this.configService.get<string>('SMTP_HOST');
-    const port = Number(this.configService.get<string>('SMTP_PORT') || 0);
-    const user = this.configService.get<string>('SMTP_USER');
-    const pass = this.configService.get<string>('SMTP_PASS');
-
-    if (!host || !port || !user || !pass) {
-      throw new BadRequestException(
-        'SMTP_HOST, SMTP_PORT, SMTP_USER and SMTP_PASS must be configured for email verification.',
-      );
-    }
-
-    const transport = nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465,
-      auth: { user, pass },
-    });
-    this.mailTransporter = transport;
-
-    return this.mailTransporter;
   }
 
   private getTwilioClient() {

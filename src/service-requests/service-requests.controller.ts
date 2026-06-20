@@ -6,6 +6,8 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Param,
+  ParseIntPipe,
   Post,
   Query,
   Req,
@@ -17,8 +19,10 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { CreatePackersMoversDto } from './dto/create-packers-movers.dto';
 import { CreatePaintingCleaningDto } from './dto/create-painting-cleaning.dto';
+import { CreateHomeServicesDto } from './dto/create-home-services.dto';
 import { CreateEventManagementDto } from './dto/create-event-management.dto';
 import { TripEstimateQueryDto } from './dto/trip-estimate.query.dto';
+import { SubmitServiceRequestFeedbackDto } from './dto/submit-service-request-feedback.dto';
 import { DistanceService } from './distance.service';
 import { ServiceRequestsService } from './service-requests.service';
 
@@ -63,6 +67,18 @@ export class ServiceRequestsController {
 
   @UseGuards(OptionalJwtAuthGuard)
   @Throttle({ default: { limit: 5, ttl: 900_000 } })
+  @Post('home-services')
+  @HttpCode(HttpStatus.CREATED)
+  async submitHomeServices(
+    @Req() req: RequestWithUser,
+    @Body() dto: CreateHomeServicesDto,
+  ) {
+    const userId = req.user?.userId ?? null;
+    return this.service.createHomeServices(dto, userId);
+  }
+
+  @UseGuards(OptionalJwtAuthGuard)
+  @Throttle({ default: { limit: 5, ttl: 900_000 } })
   @Post('event-management')
   @HttpCode(HttpStatus.CREATED)
   async submitEventManagement(
@@ -82,6 +98,22 @@ export class ServiceRequestsController {
       throw new ForbiddenException('User not authenticated properly');
     }
     return this.service.findMine(userId);
+  }
+
+  /** Authenticated customer: rate a completed service request once. */
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/feedback')
+  @HttpCode(HttpStatus.OK)
+  async submitFeedback(
+    @Req() req: RequestWithUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SubmitServiceRequestFeedbackDto,
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ForbiddenException('User not authenticated properly');
+    }
+    return this.service.submitFeedback(id, userId, dto);
   }
 
   /**

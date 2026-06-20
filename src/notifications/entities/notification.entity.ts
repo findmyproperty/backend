@@ -13,6 +13,8 @@ export enum NotificationType {
   VENDOR_REJECTED = 'vendor_rejected',
   VENDOR_PAYOUT = 'vendor_payout',
   SUPPORT_REPLY = 'support_reply',
+  EMAIL_RECEIVED = 'email_received',
+  PROPERTY_LEAD_NEW = 'property_lead_new',
 }
 
 @Entity('notifications')

@@ -13,6 +13,9 @@ import { LeadStatus, PropertyLead } from './entities/property-lead.entity';
 import { PropertiesService } from '../properties/properties.service';
 import { User } from '../users/entities/user.entity';
 import { Property } from '../properties/entities/property.entity';
+import { LeadsNotifier } from './leads.notifier';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/entities/notification.entity';
 
 export interface LeadResponse {
   id: number;
@@ -38,6 +41,8 @@ export class LeadsService {
     @InjectRepository(Property)
     private readonly propertyRepository: Repository<Property>,
     private readonly propertiesService: PropertiesService,
+    private readonly notifier: LeadsNotifier,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async create(
@@ -93,6 +98,14 @@ export class LeadsService {
     if (!tenant) {
       throw new NotFoundException('Tenant user not found');
     }
+    this.notifier.notifyAgentNewLead(saved, property, tenant, listingAgent);
+    await this.notifications.create({
+      userId: listingAgent.id,
+      type: NotificationType.PROPERTY_LEAD_NEW,
+      title: `New enquiry — ${property.title}`,
+      body: `${tenant.name ?? 'A tenant'} sent an enquiry for ${property.title}.`,
+      metadata: { leadId: saved.id, propertyId: property.id },
+    });
     return this.mapLead(saved, property, tenant);
   }
 
@@ -134,6 +147,7 @@ export class LeadsService {
     if (lead.agentUserId !== agentUserId) {
       throw new ForbiddenException('You can only update your own leads');
     }
+    const previousStatus = lead.status;
     lead.status = dto.status;
     const saved = await this.leadRepository.save(lead);
     const property = await this.propertiesService.findOne(lead.propertyId);
@@ -143,6 +157,12 @@ export class LeadsService {
     if (!tenant) {
       throw new NotFoundException('Tenant user not found');
     }
+    this.notifier.notifyTenantStatusChange(
+      saved,
+      property,
+      tenant,
+      previousStatus,
+    );
     return this.mapLead(saved, property, tenant);
   }
 

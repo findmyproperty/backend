@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import {
   IsEnum,
   IsInt,
@@ -5,8 +6,10 @@ import {
   IsString,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 import { ServiceRequestStatus } from '../entities/service-request.entity';
+import { ServiceRequestEmailNotificationsDto } from './service-request-email-notifications.dto';
 
 export class UpdateServiceRequestDto {
   @IsOptional()
@@ -27,4 +30,9 @@ export class UpdateServiceRequestDto {
   @IsInt()
   @Min(1)
   assignedVendorUserId?: number | null;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ServiceRequestEmailNotificationsDto)
+  emailNotifications?: ServiceRequestEmailNotificationsDto;
 }

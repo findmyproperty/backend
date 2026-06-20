@@ -20,6 +20,10 @@ import { PropertyLead } from './leads/entities/property-lead.entity';
 import { PropertyComment } from './properties/entities/property-comment.entity';
 import { ServiceRequestsModule } from './service-requests/service-requests.module';
 import { ServiceRequest } from './service-requests/entities/service-request.entity';
+import { LoanRequestsModule } from './loan-requests/loan-requests.module';
+import { LoanRequest } from './loan-requests/entities/loan-request.entity';
+import { JobConsultancyModule } from './job-consultancy/job-consultancy.module';
+import { JobConsultancyRequest } from './job-consultancy/entities/job-consultancy-request.entity';
 import { VendorProfile } from './vendors/entities/vendor-profile.entity';
 import { VendorLead } from './vendor-leads/entities/vendor-lead.entity';
 import { VendorLeadUpdate } from './vendor-leads/entities/vendor-lead-update.entity';
@@ -37,6 +41,8 @@ import { Notification } from './notifications/entities/notification.entity';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SupportTicket } from './support-tickets/entities/support-ticket.entity';
 import { SupportTicketsModule } from './support-tickets/support-tickets.module';
+import { MailModule } from './mail/mail.module';
+import { EmailLog } from './mail/entities/email-log.entity';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -82,6 +88,8 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
             PropertyLead,
             PropertyComment,
             ServiceRequest,
+            LoanRequest,
+            JobConsultancyRequest,
             VendorProfile,
             VendorLead,
             VendorLeadUpdate,
@@ -92,6 +100,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
             RazorpayWebhookEvent,
             Notification,
             SupportTicket,
+            EmailLog,
           ],
           synchronize: true, // Only for development!
         };
@@ -108,6 +117,8 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
     AdminModule,
     ContactModule,
     ServiceRequestsModule,
+    LoanRequestsModule,
+    JobConsultancyModule,
     VendorsModule,
     VendorLeadsModule,
     AdminWalletModule,
@@ -115,6 +126,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
     PaymentsModule,
     NotificationsModule,
     SupportTicketsModule,
+    MailModule,
   ],
   providers: [
     {
