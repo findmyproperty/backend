@@ -24,8 +24,8 @@ import twilio, { type Twilio } from 'twilio';
 import { VendorsService } from '../vendors/vendors.service';
 import { BRAND_COLOR, BRAND_ON_COLOR } from '../helper/email-theme';
 
-/** Fixed OTP used only for local development. */
-const FALLBACK_OTP_CODE = '456789';
+/** Default fixed OTP when fallback mode is enabled and OTP_FALLBACK_CODE is unset. */
+const DEFAULT_OTP_FALLBACK_CODE = '456789';
 
 interface VerificationJwtPayload {
   sub: number;
@@ -60,14 +60,15 @@ export class AuthService {
       );
     }
 
-    if (this.isDevelopmentEnvironment()) {
+    if (this.isOtpFallbackEnabled()) {
+      const fallbackCode = this.getOtpFallbackCode();
       this.logger.warn(
-        `Development mode: skipping Twilio OTP for ${normalizedPhone}. Use code ${FALLBACK_OTP_CODE}.`,
+        `OTP fallback enabled: skipping Twilio for ${normalizedPhone}. Use code ${fallbackCode}.`,
       );
       return {
         message: 'OTP sent successfully',
-        status: 'development',
-        code: FALLBACK_OTP_CODE,
+        status: 'fallback',
+        code: fallbackCode,
       };
     }
 
@@ -134,12 +135,13 @@ export class AuthService {
     const verifyServiceSid = this.configService.get<string>(
       'TWILIO_VERIFY_SERVICE_SID',
     );
-    if (this.isDevelopmentEnvironment()) {
-      if (code !== FALLBACK_OTP_CODE) {
+    if (this.isOtpFallbackEnabled()) {
+      const fallbackCode = this.getOtpFallbackCode();
+      if (code !== fallbackCode) {
         throw new UnauthorizedException('Invalid OTP code.');
       }
       this.logger.warn(
-        `Development OTP ${FALLBACK_OTP_CODE} accepted for ${normalizedPhone}.`,
+        `OTP fallback accepted for ${normalizedPhone}.`,
       );
     } else {
       if (!verifyServiceSid) {
@@ -333,9 +335,7 @@ export class AuthService {
 
     return {
       message: 'OTP sent to email address',
-      ...(this.configService.get<string>('NODE_ENV') !== 'production'
-        ? { devCode: code }
-        : {}),
+      ...(this.isOtpFallbackEnabled() ? { devCode: code } : {}),
     };
   }
 
@@ -733,6 +733,34 @@ export class AuthService {
 
   private isDevelopmentEnvironment() {
     return this.configService.get<string>('NODE_ENV') === 'development';
+  }
+
+  /**
+   * When true, phone OTP skips Twilio and accepts a fixed code.
+   * Set OTP_FALLBACK_ENABLED=true in .env, or leave unset to auto-enable in NODE_ENV=development.
+   */
+  private isOtpFallbackEnabled() {
+    const flag = this.configService.get<string>('OTP_FALLBACK_ENABLED')?.trim();
+    if (flag) {
+      const enabled = ['1', 'true', 'yes', 'on'].includes(flag.toLowerCase());
+      if (enabled && this.isProductionEnvironment()) {
+        this.logger.warn(
+          'OTP_FALLBACK_ENABLED is on in production — use only for staging.',
+        );
+      }
+      return enabled;
+    }
+    return this.isDevelopmentEnvironment();
+  }
+
+  private getOtpFallbackCode() {
+    const configured = this.configService
+      .get<string>('OTP_FALLBACK_CODE')
+      ?.trim();
+    if (configured && /^\d{4,8}$/.test(configured)) {
+      return configured;
+    }
+    return DEFAULT_OTP_FALLBACK_CODE;
   }
 
   private isProductionEnvironment() {
