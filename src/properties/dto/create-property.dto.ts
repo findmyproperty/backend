@@ -17,6 +17,11 @@ export enum ListingType {
   LEASE = 'Lease',
 }
 
+/**
+ * Legacy hardcoded values kept for reference / fallbacks.
+ * Dynamic categories are now managed via the /categories admin API.
+ * propertyType on properties is stored as free-form string.
+ */
 export enum PropertyType {
   HOUSE = 'House',
   APARTMENT = 'Apartment',
@@ -69,8 +74,9 @@ export class CreatePropertyDto {
   @IsEnum(ListingType)
   listingType: ListingType;
 
-  @IsEnum(PropertyType)
-  propertyType: PropertyType;
+  // Accepts any category name managed via the admin Categories API.
+  @IsString()
+  propertyType: string;
 
   @IsOptional()
   @IsEnum(FurnishingType)

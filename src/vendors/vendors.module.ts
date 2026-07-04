@@ -8,10 +8,20 @@ import { UsersModule } from '../users/users.module';
 import { User } from '../users/entities/user.entity';
 import { VendorLead } from '../vendor-leads/entities/vendor-lead.entity';
 import { VendorsPublicController } from './vendors.public.controller';
+import { Category } from '../categories/entities/category.entity';
+import { CategoryServiceMapping } from '../categories/entities/category-service-mapping.entity';
+import { ServiceRequest } from '../service-requests/entities/service-request.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([VendorProfile, User, VendorLead]),
+    TypeOrmModule.forFeature([
+      VendorProfile,
+      User,
+      VendorLead,
+      Category,
+      CategoryServiceMapping,
+      ServiceRequest,
+    ]),
     UsersModule,
   ],
   controllers: [VendorsController, VendorsAdminController, VendorsPublicController],

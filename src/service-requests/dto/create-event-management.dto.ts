@@ -16,8 +16,9 @@ import { BaseServiceRequestDto } from './base-service-request.dto';
 import { StopDto } from './stop.dto';
 
 export class EventManagementDetailsDto {
-  @IsIn(['birthday', 'wedding', 'baby_shower', 'corporate'])
-  eventType: 'birthday' | 'wedding' | 'baby_shower' | 'corporate';
+  // Dynamic from admin category mappings for 'event_management'
+  @IsString()
+  eventType: string;
 
   @IsIn(['home', 'banquet', 'hotel', 'outdoor', 'office', 'other'])
   venueType: 'home' | 'banquet' | 'hotel' | 'outdoor' | 'office' | 'other';

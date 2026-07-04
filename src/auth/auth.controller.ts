@@ -16,6 +16,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { UpdateMeDto } from './dto/update-me.dto';
 import { RequestPhoneOtpDto } from './dto/request-phone-otp.dto';
 import { VerifyPhoneOtpDto } from './dto/verify-phone-otp.dto';
+import { AdminLoginAsDto } from './dto/admin-login-as.dto';
 
 import type { Request, Response } from 'express';
 
@@ -123,5 +124,37 @@ export class AuthController {
     await this.authService.deleteMe(req.user!.userId);
  
     return { message: 'Account deleted successfully' };
+  }
+
+  /**
+   * Admin-only endpoint to impersonate another user.
+   * Returns fresh tokens for the target user (cookies updated).
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('admin/login-as')
+  async adminLoginAs(
+    @Body() body: AdminLoginAsDto,
+    @Req() req: RequestWithUser,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (req.user?.role !== 'admin') {
+      throw new UnauthorizedException('Only admins can impersonate users');
+    }
+    const result = await this.authService.adminLoginAs(body.userId);
+    res.cookie(
+      REFRESH_TOKEN_COOKIE,
+      result.refresh_token,
+      this.authService.getRefreshCookieOptions(),
+    );
+    res.cookie(
+      ROLE_COOKIE,
+      result.user.role,
+      this.authService.getRoleCookieOptions(),
+    );
+    return {
+      access_token: result.access_token,
+      refresh_token: result.refresh_token,
+      user: result.user,
+    };
   }
 }

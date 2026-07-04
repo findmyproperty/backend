@@ -1,11 +1,14 @@
+import { Type } from 'class-transformer';
 import {
   IsEmail,
   IsEnum,
   IsISO8601,
+  IsInt,
   IsOptional,
   IsString,
   Matches,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
 import { PreferredSlot } from '../entities/service-request.entity';
@@ -63,4 +66,11 @@ export abstract class BaseServiceRequestDto {
   @IsString()
   @MaxLength(4000)
   recaptchaToken?: string;
+
+  /** Optional customer-selected verified vendor for this service request. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  assignedVendorUserId?: number;
 }

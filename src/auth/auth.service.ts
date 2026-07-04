@@ -304,6 +304,17 @@ export class AuthService {
     return { message: 'Account deleted successfully' };
   }
 
+  async adminLoginAs(targetUserId: number) {
+    const user = await this.usersService.findOne(targetUserId);
+    if (!user) {
+      throw new NotFoundException('Target user not found');
+    }
+    if (user.role === UserRole.VENDOR) {
+      await this.vendorsService.ensureProfileForUser(user.id);
+    }
+    return this.buildAuthResponse(user);
+  }
+
   async requestEmailOtp(userId: number, email: string) {
     const normalizedEmail = this.normalizeEmail(email);
     if (!normalizedEmail) {

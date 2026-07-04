@@ -7,10 +7,10 @@ import {
 } from 'typeorm';
 import {
   ListingType,
-  PropertyType,
   PropertyStatus,
   FurnishingType,
   FloorPlanDto,
+  // PropertyType kept only as legacy reference in the DTO file.
 } from '../dto/create-property.dto';
 
 @Entity()
@@ -36,11 +36,9 @@ export class Property {
   })
   listingType: ListingType;
 
-  @Column({
-    type: 'simple-enum',
-    enum: PropertyType,
-  })
-  propertyType: PropertyType;
+  // Stored as free-form string to support admin-managed dynamic categories.
+  @Column({ type: 'varchar', length: 120 })
+  propertyType: string;
 
   @Column({
     type: 'simple-enum',

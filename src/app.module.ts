@@ -43,6 +43,9 @@ import { SupportTicket } from './support-tickets/entities/support-ticket.entity'
 import { SupportTicketsModule } from './support-tickets/support-tickets.module';
 import { MailModule } from './mail/mail.module';
 import { EmailLog } from './mail/entities/email-log.entity';
+import { Category } from './categories/entities/category.entity';
+import { CategoryServiceMapping } from './categories/entities/category-service-mapping.entity';
+import { CategoriesModule } from './categories/categories.module';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -101,6 +104,8 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
             Notification,
             SupportTicket,
             EmailLog,
+            Category,
+            CategoryServiceMapping,
           ],
           synchronize: true, // Only for development!
         };
@@ -127,6 +132,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
     NotificationsModule,
     SupportTicketsModule,
     MailModule,
+    CategoriesModule,
   ],
   providers: [
     {

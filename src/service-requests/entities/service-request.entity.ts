@@ -47,7 +47,7 @@ export interface TripEstimate {
 }
 
 export interface PackersMoversDetails {
-  moveType: 'home' | 'office' | 'vehicle';
+  moveType: string; // dynamic from categories mapped to 'packers_movers'
   bhk: '1rk' | '1' | '2' | '3' | '4+';
   /** New multi-stop representation. Optional so legacy rows (only addresses) still parse. */
   pickup?: Stop;
@@ -62,14 +62,8 @@ export interface PackersMoversDetails {
 }
 
 export interface PaintingCleaningDetails {
-  subType:
-    | 'full_painting'
-    | 'partial_painting'
-    | 'deep_cleaning'
-    | 'bathroom_cleaning'
-    | 'sofa_cleaning'
-    | 'kitchen_cleaning';
-  propertyType: 'apartment' | 'villa' | 'office';
+  subType: string; // dynamic from categories mapped to 'painting_cleaning'
+  propertyType: string; // dynamic property categories
   bhkOrSqft: string;
   /** Geocoded service location (optional for graceful fallback / legacy rows). */
   location?: Stop;
@@ -77,15 +71,15 @@ export interface PaintingCleaningDetails {
 }
 
 export interface HomeServicesDetails {
-  subType: 'carpenter' | 'plumber' | 'electrician';
-  propertyType: 'apartment' | 'villa' | 'office';
+  subType: string; // dynamic from categories mapped to 'home_services'
+  propertyType: string; // dynamic property categories
   bhkOrSqft: string;
   location?: Stop;
   notes?: string | null;
 }
 
 export interface EventManagementDetails {
-  eventType: 'birthday' | 'wedding' | 'baby_shower' | 'corporate';
+  eventType: string; // dynamic from categories mapped to 'event_management'
   venueType: 'home' | 'banquet' | 'hotel' | 'outdoor' | 'office' | 'other';
   guestCount: number;
   budgetRange?: string | null;

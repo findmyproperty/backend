@@ -16,8 +16,9 @@ import { BaseServiceRequestDto } from './base-service-request.dto';
 import { StopDto } from './stop.dto';
 
 export class PackersMoversDetailsDto {
-  @IsIn(['home', 'office', 'vehicle'])
-  moveType: 'home' | 'office' | 'vehicle';
+  // Dynamic from admin category mappings for 'packers_movers'
+  @IsString()
+  moveType: string;
 
   @IsIn(['1rk', '1', '2', '3', '4+'])
   bhk: '1rk' | '1' | '2' | '3' | '4+';

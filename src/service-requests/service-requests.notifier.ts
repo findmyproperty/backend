@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
 import { VendorProfile } from '../vendors/entities/vendor-profile.entity';
+import { Category } from '../categories/entities/category.entity';
 import { escapeHtmlForEmail } from '../helper/escape-html';
 import { BRAND_COLOR } from '../helper/email-theme';
 import {
@@ -65,6 +66,8 @@ export class ServiceRequestsNotifier {
     private readonly mail: MailService,
     @InjectRepository(VendorProfile)
     private readonly vendorProfileRepo: Repository<VendorProfile>,
+    @InjectRepository(Category)
+    private readonly categoryRepo: Repository<Category>,
   ) {}
 
   notifyAdminsOfNewRequest(request: ServiceRequest): void {
@@ -435,13 +438,18 @@ export class ServiceRequestsNotifier {
     try {
       const user = await this.usersService.findOne(userId);
       const profile = await this.vendorProfileRepo.findOneBy({ userId });
-      return {
+      let categoryName: string | null = null;
+    if (profile?.categoryIds?.length) {
+      const cat = await this.categoryRepo.findOneBy({ id: profile.categoryIds[0] });
+      categoryName = cat?.name ?? null;
+    }
+    return {
         userId: user.id,
         name: user.name,
         email: user.email,
         phone: user.phone,
         businessName: profile?.businessName ?? null,
-        category: profile?.category ?? null,
+        category: categoryName,
         serviceLocations: profile?.serviceLocations ?? null,
         workingHours: profile?.workingHours ?? null,
       };

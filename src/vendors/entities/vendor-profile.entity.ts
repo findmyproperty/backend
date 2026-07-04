@@ -45,12 +45,12 @@ export class VendorProfile {
   @Column({ type: 'varchar', length: 160, nullable: true })
   businessName: string | null;
 
-  @Column({
-    type: 'varchar',
-    length: 32,
-    default: VendorCategory.OTHER,
-  })
-  category: VendorCategory;
+  /**
+   * Store array of category IDs from the categories table.
+   * Populated on GET to include name.
+   */
+  @Column({ type: 'json', nullable: true })
+  categoryIds: number[] | null;
 
   @Column({
     type: 'varchar',

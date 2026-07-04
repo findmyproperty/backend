@@ -24,6 +24,7 @@ import { ListServiceRequestsQueryDto } from './dto/list-service-requests.query.d
 import { ServiceRequestsNotifier } from './service-requests.notifier';
 import { DistanceService } from './distance.service';
 import { VendorLeadsService } from '../vendor-leads/vendor-leads.service';
+import { VendorsService } from '../vendors/vendors.service';
 
 export interface ServiceRequestResponse {
   id: number;
@@ -64,6 +65,7 @@ export class ServiceRequestsService {
     private readonly notifier: ServiceRequestsNotifier,
     private readonly distance: DistanceService,
     private readonly vendorLeadsService: VendorLeadsService,
+    private readonly vendorsService: VendorsService,
   ) {}
 
   async createPackersMovers(
@@ -113,9 +115,15 @@ export class ServiceRequestsService {
     details: ServiceRequest['details'],
     userId: number | null,
   ): Promise<ServiceRequestResponse> {
+    const assignedVendorUserId = await this.vendorsService.resolveSelectableVendorUserId(
+      base.assignedVendorUserId,
+      serviceType,
+    );
     const entity = this.repo.create({
       serviceType,
-      status: ServiceRequestStatus.NEW,
+      status: assignedVendorUserId
+        ? ServiceRequestStatus.CONTACTED
+        : ServiceRequestStatus.NEW,
       userId: userId ?? null,
       name: base.name.trim(),
       phone: base.phone.trim(),
@@ -128,8 +136,15 @@ export class ServiceRequestsService {
       details: details ?? null,
       internalNotes: null,
       assignedAdminId: null,
+      assignedVendorUserId,
     });
     const saved = await this.repo.save(entity);
+    if (saved.assignedVendorUserId != null) {
+      await this.vendorLeadsService.createFromServiceRequest(
+        saved.id,
+        saved.assignedVendorUserId,
+      );
+    }
     this.notifier.notifyAdminsOfNewRequest(saved);
     return this.map(saved);
   }

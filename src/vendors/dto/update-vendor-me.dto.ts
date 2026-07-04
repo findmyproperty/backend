@@ -1,13 +1,12 @@
 import {
-  IsEnum,
   IsOptional,
   IsString,
   MaxLength,
   IsArray,
   IsObject,
   Matches,
+  IsInt,
 } from 'class-validator';
-import { VendorCategory } from '../entities/vendor-profile.entity';
 import type { VendorKycDocuments } from '../entities/vendor-profile.entity';
 
 export class UpdateVendorMeDto {
@@ -16,9 +15,13 @@ export class UpdateVendorMeDto {
   @MaxLength(160)
   businessName?: string;
 
+  /**
+   * Array of category IDs from admin categories table.
+   */
   @IsOptional()
-  @IsEnum(VendorCategory)
-  category?: VendorCategory;
+  @IsArray()
+  @IsInt({ each: true })
+  categoryIds?: number[];
 
   @IsOptional()
   @IsObject()

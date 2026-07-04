@@ -10,24 +10,13 @@ import { BaseServiceRequestDto } from './base-service-request.dto';
 import { StopDto } from './stop.dto';
 
 export class PaintingCleaningDetailsDto {
-  @IsIn([
-    'full_painting',
-    'partial_painting',
-    'deep_cleaning',
-    'bathroom_cleaning',
-    'sofa_cleaning',
-    'kitchen_cleaning',
-  ])
-  subType:
-    | 'full_painting'
-    | 'partial_painting'
-    | 'deep_cleaning'
-    | 'bathroom_cleaning'
-    | 'sofa_cleaning'
-    | 'kitchen_cleaning';
+  // Dynamic from admin category mappings for 'painting_cleaning'
+  @IsString()
+  subType: string;
 
-  @IsIn(['apartment', 'villa', 'office'])
-  propertyType: 'apartment' | 'villa' | 'office';
+  // Relaxed to support dynamic property categories
+  @IsString()
+  propertyType: string;
 
   @IsString()
   @MaxLength(60)

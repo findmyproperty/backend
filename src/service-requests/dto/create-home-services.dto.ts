@@ -10,11 +10,13 @@ import { BaseServiceRequestDto } from './base-service-request.dto';
 import { StopDto } from './stop.dto';
 
 export class HomeServicesDetailsDto {
-  @IsIn(['carpenter', 'plumber', 'electrician'])
-  subType: 'carpenter' | 'plumber' | 'electrician';
+  // Dynamic from admin category mappings for 'home_services'
+  @IsString()
+  subType: string;
 
-  @IsIn(['apartment', 'villa', 'office'])
-  propertyType: 'apartment' | 'villa' | 'office';
+  // Relaxed to support dynamic property categories
+  @IsString()
+  propertyType: string;
 
   @IsString()
   @MaxLength(60)
