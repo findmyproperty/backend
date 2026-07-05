@@ -13,6 +13,7 @@ export enum VendorLedgerType {
 }
 
 export enum VendorLedgerStatus {
+  PAYMENT_PENDING = 'payment_pending',
   PENDING = 'pending',
   SETTLED = 'settled',
   FAILED = 'failed',
@@ -42,6 +43,16 @@ export class VendorLedgerEntry {
 
   @Column({ type: 'varchar', length: 500, nullable: true })
   description: string | null;
+
+  @Index({ unique: true })
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  externalReferenceId: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  webhookEventId: string | null;
+
+  @Column({ type: 'json', nullable: true })
+  metadata: Record<string, unknown> | null;
 
   @CreateDateColumn()
   createdAt: Date;

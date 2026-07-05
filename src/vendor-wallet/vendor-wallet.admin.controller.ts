@@ -88,6 +88,6 @@ export class VendorWalletAdminController {
     if (req.user?.role !== 'admin') {
       throw new ForbiddenException('Only admins');
     }
-    return this.walletService.adminCreditWallet(dto);
+    return this.walletService.adminCreditWallet(req.user.userId, dto);
   }
 }

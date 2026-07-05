@@ -200,46 +200,32 @@ export class VendorsService {
   }
 
   async listPublicVendorOptions(
-    serviceType: ServiceType,
-    location?: string,
-    category?: string,
+    categoryId?: string,
   ): Promise<PublicVendorOptionResponse[]> {
-    this.assertKnownServiceType(serviceType);
 
-    const categoryIds = await this.findCategoryIdsForService(serviceType);
-    if (categoryIds.size === 0) return [];
-
-    let targetCategoryId: number | null = null;
-    if (category?.trim()) {
-      const matchedCat = await this.findCategoryByString(category, serviceType);
-      if (matchedCat) {
-        targetCategoryId = matchedCat.id;
-      } else {
-        return [];
-      }
+    if(!Number(categoryId) && Number(categoryId) !== 0) {
+      return [];
     }
 
-    const profiles = await this.profileRepo.find({
-      where: { verificationStatus: VendorVerificationStatus.VERIFIED },
-      order: { businessName: 'ASC' },
-    });
+    const profiles = await this.profileRepo
+  .createQueryBuilder('profile')
+  .where('profile.verificationStatus = :status', {
+    status: VendorVerificationStatus.VERIFIED,
+  })
+  .andWhere('JSON_CONTAINS(profile.categoryIds, :categoryId)', {
+    categoryId: String(Number(categoryId)),
+  })
+  .orderBy('profile.businessName', 'ASC')
+  .getMany();
+
+    console.log('listPublicVendorOptions', { categoryId, profiles });
     
-    let matchingProfiles = profiles.filter((profile) =>
-      profile.categoryIds?.some((id) => categoryIds.has(id)),
-    );
+    if (profiles.length === 0) return [];
 
-    if (targetCategoryId !== null) {
-      matchingProfiles = matchingProfiles.filter((profile) =>
-        profile.categoryIds?.includes(targetCategoryId),
-      );
-    }
-
-    if (matchingProfiles.length === 0) return [];
-
-    const userIds = matchingProfiles.map((p) => p.userId);
+    const userIds = profiles.map((p) => p.userId);
     const users = await this.userRepo.findBy({ id: In(userIds) });
     const userMap = new Map(users.map((u) => [u.id, u]));
-    const activeProfiles = matchingProfiles.filter((profile) => {
+    const activeProfiles = profiles.filter((profile) => {
       const user = userMap.get(profile.userId);
       return user?.isActive !== false && user?.role === UserRole.VENDOR;
     });

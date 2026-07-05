@@ -83,6 +83,28 @@ export class RazorpayWebhookController {
     if (eventType === 'payment.captured') {
       const payment = this.getEntity(payload, 'payment');
       await this.adminWalletService.handlePaymentCaptured(payment, eventId);
+      await this.vendorWalletService.handleVendorCreditPaymentCaptured(
+        payment,
+        eventId,
+      );
+      return;
+    }
+
+    if (eventType === 'payment.failed') {
+      const payment = this.getEntity(payload, 'payment');
+      await this.vendorWalletService.handleVendorCreditPaymentFailed(
+        payment,
+        eventId,
+      );
+      return;
+    }
+
+    if (eventType === 'payment_link.paid') {
+      const paymentLink = this.getEntity(payload, 'payment_link');
+      await this.vendorWalletService.handleVendorCreditPaymentLinkPaid(
+        paymentLink,
+        eventId,
+      );
       return;
     }
 

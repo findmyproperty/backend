@@ -8,11 +8,9 @@ export class VendorsPublicController {
 
   @Get('select')
   async selectPublic(
-    @Query('serviceType') serviceType: ServiceType,
-    @Query('location') location?: string,
-    @Query('category') category?: string,
+    @Query('categoryId') categoryId?: string,
   ) {
-    return this.vendorsService.listPublicVendorOptions(serviceType, location, category);
+    return this.vendorsService.listPublicVendorOptions(categoryId);
   }
 
   @Get(':idOrSlug')

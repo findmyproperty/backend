@@ -70,6 +70,19 @@ export interface RazorpayPayout {
   created_at?: number;
 }
 
+export interface RazorpayPaymentLink {
+  id: string;
+  entity: string;
+  amount: number;
+  currency: string;
+  status: string;
+  reference_id?: string;
+  short_url?: string;
+  description?: string;
+  notes?: Record<string, unknown>;
+  created_at?: number;
+}
+
 @Injectable()
 export class RazorpayService {
   constructor(private readonly configService: ConfigService) {}
@@ -175,6 +188,40 @@ export class RazorpayService {
       },
       { useRazorpayXBaseUrl: true },
     );
+  }
+
+  createPaymentLink(input: {
+    amountPaise: number;
+    currency: string;
+    referenceId: string;
+    description: string;
+    customer?: {
+      name?: string | null;
+      email?: string | null;
+      contact?: string | null;
+    };
+    notify?: {
+      sms?: boolean;
+      email?: boolean;
+    };
+    notes?: Record<string, unknown>;
+  }): Promise<RazorpayPaymentLink> {
+    const customer = {
+      ...(input.customer?.name ? { name: input.customer.name } : {}),
+      ...(input.customer?.email ? { email: input.customer.email } : {}),
+      ...(input.customer?.contact ? { contact: input.customer.contact } : {}),
+    };
+
+    return this.request<RazorpayPaymentLink>('POST', '/payment_links', {
+      amount: input.amountPaise,
+      currency: input.currency,
+      reference_id: input.referenceId,
+      description: input.description,
+      ...(Object.keys(customer).length > 0 ? { customer } : {}),
+      notify: input.notify ?? { sms: true, email: true },
+      reminder_enable: true,
+      notes: input.notes ?? {},
+    });
   }
 
   verifyWebhookSignature(rawBody: Buffer, signature: string): boolean {

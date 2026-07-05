@@ -146,7 +146,7 @@ export class AdminWalletService {
         payoutDebits += amount;
       }
       if (
-        entry.type === AdminWalletEntryType.VENDOR_PAYOUT &&
+        entry.type === AdminWalletEntryType.VENDOR_PAYOUT   &&
         entry.status === AdminWalletEntryStatus.PENDING
       ) {
         pendingPayoutDebits += amount;

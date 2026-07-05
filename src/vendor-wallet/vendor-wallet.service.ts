@@ -34,6 +34,7 @@ import { ListWithdrawalsQueryDto } from './dto/list-withdrawals.query.dto';
 import { UsersService } from '../users/users.service';
 import {
   RazorpayFundAccount,
+  RazorpayPaymentLink,
   RazorpayPayout,
   RazorpayService,
 } from '../razorpay/razorpay.service';
@@ -55,7 +56,19 @@ export interface LedgerEntryResponse {
   amount: number;
   status: string;
   description: string | null;
+  externalReferenceId: string | null;
   createdAt: Date;
+}
+
+export interface AdminCreditWalletResponse {
+  ledgerEntry: LedgerEntryResponse;
+  paymentLink: {
+    id: string;
+    shortUrl: string | null;
+    status: string;
+    amount: number;
+    currency: string;
+  };
 }
 
 export interface PayoutAccountResponse {
@@ -168,7 +181,11 @@ export class VendorWalletService {
 
     for (const entry of entries) {
       const amount = Number(entry.amount);
-      if (entry.type === VendorLedgerType.EARNING) {
+      if (
+        entry.type === VendorLedgerType.EARNING &&
+        entry.status !== VendorLedgerStatus.PAYMENT_PENDING &&
+        entry.status !== VendorLedgerStatus.FAILED
+      ) {
         totalEarnings += amount;
       }
       if (entry.type === VendorLedgerType.COMMISSION) {
@@ -264,30 +281,65 @@ export class VendorWalletService {
   }
 
   async adminCreditWallet(
+    adminUserId: number,
     dto: AdminCreditWalletDto,
-  ): Promise<LedgerEntryResponse> {
+  ): Promise<AdminCreditWalletResponse> {
     const amountPaise = this.toPaise(dto.amount);
     const amount = amountPaise / 100;
-    const entry = await this.ledgerRepo.save(
+    const [adminUser, vendorUser] = await Promise.all([
+      this.usersService.findOne(adminUserId),
+      this.usersService.findOne(dto.vendorUserId),
+    ]);
+    let entry = await this.ledgerRepo.save(
       this.ledgerRepo.create({
         vendorUserId: dto.vendorUserId,
         vendorLeadId: null,
         type: VendorLedgerType.EARNING,
         amount,
-        status: VendorLedgerStatus.PENDING,
+        status: VendorLedgerStatus.PAYMENT_PENDING,
         description: dto.description?.trim() || 'Admin wallet credit',
+        externalReferenceId: null,
+        webhookEventId: null,
+        metadata: null,
       }),
     );
 
-    await this.notifications.create({
-      userId: dto.vendorUserId,
-      type: NotificationType.VENDOR_PAYOUT,
-      title: 'Wallet credited',
-      body: `INR ${amount} has been added to your vendor wallet.`,
-      metadata: { ledgerEntryId: entry.id },
+    const paymentLink = await this.razorpayService.createPaymentLink({
+      amountPaise,
+      currency: 'INR',
+      referenceId: this.makeReference('vc', dto.vendorUserId),
+      description: dto.description?.trim() || 'Vendor wallet credit',
+      customer: {
+        name: adminUser.name || 'Admin',
+        email: adminUser.email,
+        contact: this.normalizePhoneForRazorpay(adminUser.phone),
+      },
+      notify: {
+        sms: Boolean(adminUser.phone),
+        email: Boolean(adminUser.email),
+      },
+      notes: {
+        purpose: 'vendor_wallet_credit',
+        vendor_user_id: dto.vendorUserId,
+        vendor_wallet_ledger_id: entry.id,
+        vendor_name: vendorUser.name ?? undefined,
+      },
     });
 
-    return this.mapEntry(entry);
+    entry.externalReferenceId = paymentLink.id;
+    entry.metadata = { paymentLink: this.sanitizePaymentLink(paymentLink) };
+    entry = await this.ledgerRepo.save(entry);
+
+    return {
+      ledgerEntry: this.mapEntry(entry),
+      paymentLink: {
+        id: paymentLink.id,
+        shortUrl: paymentLink.short_url ?? null,
+        status: paymentLink.status,
+        amount: paymentLink.amount,
+        currency: paymentLink.currency,
+      },
+    };
   }
 
   async createPayoutAccount(
@@ -497,6 +549,100 @@ export class VendorWalletService {
     );
   }
 
+  async handleVendorCreditPaymentCaptured(
+    payment: Record<string, unknown>,
+    webhookEventId: string,
+  ): Promise<LedgerEntryResponse | null> {
+    const entry = await this.findVendorCreditEntryForPayment(payment);
+    if (!entry) return null;
+
+    this.assertPaymentAmountMatches(entry, payment);
+
+    if (entry.status !== VendorLedgerStatus.PENDING) {
+      entry.status = VendorLedgerStatus.PENDING;
+      entry.webhookEventId = webhookEventId;
+      entry.metadata = {
+        ...(entry.metadata ?? {}),
+        payment: this.sanitizePayment(payment),
+      };
+      await this.ledgerRepo.save(entry);
+
+      await this.notifications.create({
+        userId: entry.vendorUserId,
+        type: NotificationType.VENDOR_PAYOUT,
+        title: 'Wallet credited',
+        body: `INR ${Number(entry.amount)} has been added to your vendor wallet.`,
+        metadata: { ledgerEntryId: entry.id },
+      });
+    }
+
+    return this.mapEntry(entry);
+  }
+
+  async handleVendorCreditPaymentFailed(
+    payment: Record<string, unknown>,
+    webhookEventId: string,
+  ): Promise<LedgerEntryResponse | null> {
+    const entry = await this.findVendorCreditEntryForPayment(payment);
+    if (!entry || entry.status !== VendorLedgerStatus.PAYMENT_PENDING) {
+      return null;
+    }
+
+    entry.status = VendorLedgerStatus.FAILED;
+    entry.webhookEventId = webhookEventId;
+    entry.metadata = {
+      ...(entry.metadata ?? {}),
+      failedPayment: this.sanitizePayment(payment),
+    };
+    const saved = await this.ledgerRepo.save(entry);
+    return this.mapEntry(saved);
+  }
+
+  async handleVendorCreditPaymentLinkPaid(
+    paymentLink: Record<string, unknown>,
+    webhookEventId: string,
+  ): Promise<LedgerEntryResponse | null> {
+    const paymentLinkId = String(paymentLink.id ?? '');
+    if (!paymentLinkId) return null;
+
+    const entry = await this.ledgerRepo.findOne({
+      where: { externalReferenceId: paymentLinkId },
+    });
+    if (!entry) return null;
+
+    const paymentLinkAmount = Number(paymentLink.amount);
+    const paymentLinkCurrency = String(paymentLink.currency ?? 'INR');
+    if (
+      paymentLinkAmount !== this.toPaise(Number(entry.amount)) ||
+      paymentLinkCurrency !== 'INR'
+    ) {
+      throw new BadRequestException('Razorpay payment link amount mismatch.');
+    }
+
+    if (entry.status !== VendorLedgerStatus.PENDING) {
+      entry.status = VendorLedgerStatus.PENDING;
+      entry.webhookEventId = webhookEventId;
+      entry.metadata = {
+        ...(entry.metadata ?? {}),
+        paymentLink: {
+          ...(entry.metadata?.paymentLink as Record<string, unknown> | undefined),
+          ...this.sanitizePaymentLinkFromWebhook(paymentLink),
+        },
+      };
+      await this.ledgerRepo.save(entry);
+
+      await this.notifications.create({
+        userId: entry.vendorUserId,
+        type: NotificationType.VENDOR_PAYOUT,
+        title: 'Wallet credited',
+        body: `INR ${Number(entry.amount)} has been added to your vendor wallet.`,
+        metadata: { ledgerEntryId: entry.id },
+      });
+    }
+
+    return this.mapEntry(entry);
+  }
+
   private async applyPayoutUpdate(
     withdrawal: VendorWithdrawal,
     payout: RazorpayPayout,
@@ -615,6 +761,46 @@ export class VendorWalletService {
         await this.ledgerRepo.save(row);
         remaining -= rowAmount;
       }
+    }
+  }
+
+  private async findVendorCreditEntryForPayment(
+    payment: Record<string, unknown>,
+  ): Promise<VendorLedgerEntry | null> {
+    const notes =
+      payment.notes && typeof payment.notes === 'object'
+        ? (payment.notes as Record<string, unknown>)
+        : {};
+    const purpose = String(notes.purpose ?? '');
+
+    const ledgerId = Number(notes.vendor_wallet_ledger_id ?? 0);
+    if (
+      purpose === 'vendor_wallet_credit' &&
+      Number.isFinite(ledgerId) &&
+      ledgerId > 0
+    ) {
+      const entry = await this.ledgerRepo.findOne({ where: { id: ledgerId } });
+      if (entry) return entry;
+    }
+
+    const paymentLinkId = String(payment.payment_link_id ?? '');
+    if (paymentLinkId) {
+      return this.ledgerRepo.findOne({
+        where: { externalReferenceId: paymentLinkId },
+      });
+    }
+
+    return null;
+  }
+
+  private assertPaymentAmountMatches(
+    entry: VendorLedgerEntry,
+    payment: Record<string, unknown>,
+  ): void {
+    const paymentAmount = Number(payment.amount);
+    const paymentCurrency = String(payment.currency ?? 'INR');
+    if (paymentAmount !== this.toPaise(Number(entry.amount)) || paymentCurrency !== 'INR') {
+      throw new BadRequestException('Razorpay payment amount mismatch.');
     }
   }
 
@@ -821,6 +1007,49 @@ export class VendorWalletService {
     };
   }
 
+  private sanitizePaymentLink(
+    paymentLink: RazorpayPaymentLink,
+  ): Record<string, unknown> {
+    return {
+      id: paymentLink.id,
+      amount: paymentLink.amount,
+      currency: paymentLink.currency,
+      status: paymentLink.status,
+      reference_id: paymentLink.reference_id,
+      short_url: paymentLink.short_url,
+      created_at: paymentLink.created_at,
+    };
+  }
+
+  private sanitizePaymentLinkFromWebhook(
+    paymentLink: Record<string, unknown>,
+  ): Record<string, unknown> {
+    return {
+      id: paymentLink.id,
+      amount: paymentLink.amount,
+      currency: paymentLink.currency,
+      status: paymentLink.status,
+      reference_id: paymentLink.reference_id,
+      short_url: paymentLink.short_url,
+      created_at: paymentLink.created_at,
+    };
+  }
+
+  private sanitizePayment(payment: Record<string, unknown>) {
+    return {
+      id: payment.id,
+      order_id: payment.order_id,
+      payment_link_id: payment.payment_link_id,
+      amount: payment.amount,
+      currency: payment.currency,
+      status: payment.status,
+      method: payment.method,
+      email: payment.email,
+      contact: payment.contact,
+      created_at: payment.created_at,
+    };
+  }
+
   private roundMoney(value: number): number {
     return Math.round(value * 100) / 100;
   }
@@ -834,6 +1063,7 @@ export class VendorWalletService {
       amount: Number(entry.amount),
       status: entry.status,
       description: entry.description,
+      externalReferenceId: entry.externalReferenceId,
       createdAt: entry.createdAt,
     };
   }
