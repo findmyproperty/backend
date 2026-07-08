@@ -107,7 +107,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
             Category,
             CategoryServiceMapping,
           ],
-          synchronize: true, // Only for development!
+          // synchronize: true,
         };
       },
     }),
