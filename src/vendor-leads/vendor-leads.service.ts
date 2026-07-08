@@ -15,6 +15,7 @@ import { AdminPatchVendorLeadDto } from './dto/admin-patch-vendor-lead.dto';
 import { ListVendorLeadsQueryDto } from './dto/list-vendor-leads.query.dto';
 import { VendorsService } from '../vendors/vendors.service';
 import { VendorWalletService } from '../vendor-wallet/vendor-wallet.service';
+import type { JobSettlementInitResponse } from '../vendor-wallet/vendor-wallet.service';
 import { UsersService } from '../users/users.service';
 import { UserRole } from '../users/entities/user.entity';
 import {
@@ -23,6 +24,7 @@ import {
 } from '../service-requests/entities/service-request.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
+import { TelephonyService } from '../telephony/telephony.service';
 
 export interface VendorLeadUpdateResponse {
   id: number;
@@ -37,7 +39,7 @@ export interface VendorLeadResponse {
   vendorUserId: number;
   serviceRequestId: number | null;
   customerName: string;
-  phone: string;
+  phone?: string;
   area: string | null;
   budget: string | null;
   requirement: string | null;
@@ -48,6 +50,15 @@ export interface VendorLeadResponse {
   createdAt: Date;
   updatedAt: Date;
   updates?: VendorLeadUpdateResponse[];
+  settlement?: JobSettlementInitResponse;
+  contactAvailable?: boolean;
+  contactPhone?: string | null;
+  adminApprovedAt?: Date | null;
+  adminApprovedByUserId?: number | null;
+  adminApprovalNotes?: string | null;
+  adminRejectedAt?: Date | null;
+  adminRejectedByUserId?: number | null;
+  adminRejectionReason?: string | null;
 }
 
 @Injectable()
@@ -63,6 +74,7 @@ export class VendorLeadsService {
     private readonly walletService: VendorWalletService,
     private readonly usersService: UsersService,
     private readonly notifications: NotificationsService,
+    private readonly telephonyService: TelephonyService,
   ) {}
 
   private async notifyLead(
@@ -81,12 +93,27 @@ export class VendorLeadsService {
     });
   }
 
+  private canVendorAcceptOrReject(status: VendorLeadStatus): boolean {
+    return (
+      status === VendorLeadStatus.OPEN || status === VendorLeadStatus.NEW
+    );
+  }
+
+  private isContactAvailable(lead: VendorLead): boolean {
+    if (!lead.adminApprovedAt) return false;
+    return (
+      lead.status === VendorLeadStatus.ACCEPTED ||
+      lead.status === VendorLeadStatus.IN_PROGRESS ||
+      lead.status === VendorLeadStatus.COMPLETED
+    );
+  }
+
   async findAllForVendor(vendorUserId: number): Promise<VendorLeadResponse[]> {
     const rows = await this.leadRepo.find({
       where: { vendorUserId },
       order: { updatedAt: 'DESC' },
     });
-    return rows.map((r) => this.mapLead(r));
+    return rows.map((r) => this.mapLeadForVendor(r));
   }
 
   async findOneForVendor(
@@ -99,7 +126,7 @@ export class VendorLeadsService {
       order: { createdAt: 'ASC' },
     });
     return {
-      ...this.mapLead(lead),
+      ...this.mapLeadForVendor(lead),
       updates: updates.map((u) => this.mapUpdate(u)),
     };
   }
@@ -122,9 +149,9 @@ export class VendorLeadsService {
       dto.status === VendorLeadStatus.ACCEPTED ||
       dto.status === VendorLeadStatus.REJECTED
     ) {
-      if (lead.status !== VendorLeadStatus.NEW) {
+      if (!this.canVendorAcceptOrReject(lead.status)) {
         throw new BadRequestException(
-          'Only new leads can be accepted or rejected',
+          'This lead is not open for accept or reject yet',
         );
       }
       if (dto.status === VendorLeadStatus.ACCEPTED) {
@@ -141,8 +168,13 @@ export class VendorLeadsService {
       ) {
         throw new BadRequestException('Lead must be in progress to complete');
       }
-    } else if (dto.status === VendorLeadStatus.NEW) {
-      throw new BadRequestException('Cannot revert to new');
+    } else if (
+      dto.status === VendorLeadStatus.NEW ||
+      dto.status === VendorLeadStatus.OPEN ||
+      dto.status === VendorLeadStatus.PENDING_ADMIN_REVIEW ||
+      dto.status === VendorLeadStatus.ADMIN_REJECTED
+    ) {
+      throw new BadRequestException('Invalid status transition');
     }
 
     const prev = lead.status;
@@ -154,11 +186,11 @@ export class VendorLeadsService {
         vendorUserId,
         NotificationType.VENDOR_LEAD_STATUS,
         'Lead status updated',
-        `Lead #${saved.id} is now ${saved.status.replace('_', ' ')}`,
+        `Lead #${saved.id} is now ${saved.status.replace(/_/g, ' ')}`,
         { leadId: saved.id, status: saved.status },
       );
     }
-    return this.mapLead(saved);
+    return this.mapLeadForVendor(saved);
   }
 
   async addUpdate(
@@ -169,6 +201,9 @@ export class VendorLeadsService {
     const lead = await this.getOwnedLead(id, vendorUserId);
     if (
       lead.status === VendorLeadStatus.REJECTED ||
+      lead.status === VendorLeadStatus.ADMIN_REJECTED ||
+      lead.status === VendorLeadStatus.PENDING_ADMIN_REVIEW ||
+      lead.status === VendorLeadStatus.OPEN ||
       lead.status === VendorLeadStatus.NEW
     ) {
       throw new BadRequestException('Accept the lead before posting updates');
@@ -202,10 +237,15 @@ export class VendorLeadsService {
     if (query.status) {
       qb.andWhere('vl.status = :st', { st: query.status });
     }
+    if (query.serviceRequestId) {
+      qb.andWhere('vl.serviceRequestId = :srId', {
+        srId: query.serviceRequestId,
+      });
+    }
     qb.skip((page - 1) * limit).take(limit);
     const [rows, total] = await qb.getManyAndCount();
     return {
-      items: rows.map((r) => this.mapLead(r)),
+      items: rows.map((r) => this.mapLeadForAdmin(r)),
       total,
       page,
       limit,
@@ -222,9 +262,86 @@ export class VendorLeadsService {
       order: { createdAt: 'ASC' },
     });
     return {
-      ...this.mapLead(lead),
+      ...this.mapLeadForAdmin(lead),
       updates: updates.map((u) => this.mapUpdate(u)),
     };
+  }
+
+  async adminApproveLead(
+    id: number,
+    adminUserId: number,
+    notes?: string,
+  ): Promise<VendorLeadResponse> {
+    const lead = await this.leadRepo.findOneBy({ id });
+    if (!lead) {
+      throw new NotFoundException(`Vendor lead ${id} not found`);
+    }
+    if (lead.status !== VendorLeadStatus.PENDING_ADMIN_REVIEW) {
+      throw new BadRequestException(
+        'Only leads awaiting admin review can be approved',
+      );
+    }
+
+    lead.status = VendorLeadStatus.OPEN;
+    lead.adminApprovedAt = new Date();
+    lead.adminApprovedByUserId = adminUserId;
+    lead.adminApprovalNotes = notes?.trim() || null;
+    lead.adminRejectedAt = null;
+    lead.adminRejectedByUserId = null;
+    lead.adminRejectionReason = null;
+
+    const saved = await this.leadRepo.save(lead);
+    await this.syncServiceRequestStatus(saved);
+    await this.notifyLead(
+      saved.vendorUserId,
+      NotificationType.VENDOR_LEAD_ASSIGNED,
+      'Lead ready for you',
+      `Lead #${saved.id} for ${saved.customerName} is approved. Accept or reject when ready.`,
+      { leadId: saved.id, serviceRequestId: saved.serviceRequestId },
+    );
+
+    return this.mapLeadForAdmin(saved);
+  }
+
+  async adminRejectLead(
+    id: number,
+    adminUserId: number,
+    reason: string,
+  ): Promise<VendorLeadResponse> {
+    const lead = await this.leadRepo.findOneBy({ id });
+    if (!lead) {
+      throw new NotFoundException(`Vendor lead ${id} not found`);
+    }
+    if (lead.status !== VendorLeadStatus.PENDING_ADMIN_REVIEW) {
+      throw new BadRequestException(
+        'Only leads awaiting admin review can be rejected',
+      );
+    }
+
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      throw new BadRequestException('Rejection reason is required');
+    }
+
+    lead.status = VendorLeadStatus.ADMIN_REJECTED;
+    lead.adminRejectedAt = new Date();
+    lead.adminRejectedByUserId = adminUserId;
+    lead.adminRejectionReason = trimmedReason;
+    lead.adminApprovedAt = null;
+    lead.adminApprovedByUserId = null;
+    lead.adminApprovalNotes = null;
+
+    const saved = await this.leadRepo.save(lead);
+    await this.syncServiceRequestStatus(saved);
+    await this.notifyLead(
+      saved.vendorUserId,
+      NotificationType.VENDOR_LEAD_STATUS,
+      'Lead not released',
+      `Lead #${saved.id} was not approved for vendor action.`,
+      { leadId: saved.id, status: saved.status },
+    );
+
+    return this.mapLeadForAdmin(saved);
   }
 
   async adminCreate(
@@ -244,23 +361,24 @@ export class VendorLeadsService {
       budget: dto.budget ?? null,
       requirement: dto.requirement ?? null,
       preferredDate: dto.preferredDate ?? null,
-      status: VendorLeadStatus.NEW,
+      status: VendorLeadStatus.PENDING_ADMIN_REVIEW,
       commissionPercent,
     });
     const saved = await this.leadRepo.save(lead);
     await this.notifyLead(
       dto.vendorUserId,
       NotificationType.VENDOR_LEAD_ASSIGNED,
-      'New lead assigned',
-      `Customer: ${saved.customerName}${saved.area ? ` · ${saved.area}` : ''}`,
+      'Lead assigned — awaiting admin approval',
+      `Customer: ${saved.customerName}${saved.area ? ` · ${saved.area}` : ''}. You will be able to accept or reject after admin approval.`,
       { leadId: saved.id },
     );
-    return this.mapLead(saved);
+    return this.mapLeadForAdmin(saved);
   }
 
   async adminPatch(
     id: number,
     dto: AdminPatchVendorLeadDto,
+    adminUserId: number,
   ): Promise<VendorLeadResponse> {
     const lead = await this.leadRepo.findOneBy({ id });
     if (!lead) {
@@ -270,6 +388,7 @@ export class VendorLeadsService {
       lead.vendorUserId = dto.vendorUserId;
     }
     if (dto.status !== undefined) {
+      this.assertAdminStatusTransition(lead.status, dto.status);
       lead.status = dto.status;
     }
     if (dto.jobAmount !== undefined) {
@@ -278,12 +397,14 @@ export class VendorLeadsService {
     const saved = await this.leadRepo.save(lead);
     await this.syncServiceRequestStatus(saved);
 
+    let settlement: JobSettlementInitResponse | undefined;
     if (
       saved.status === VendorLeadStatus.COMPLETED &&
       saved.jobAmount != null &&
       Number(saved.jobAmount) > 0
     ) {
-      await this.walletService.recordJobCompletion(
+      settlement = await this.walletService.initiateJobSettlement(
+        adminUserId,
         saved.vendorUserId,
         saved.id,
         Number(saved.jobAmount),
@@ -291,7 +412,67 @@ export class VendorLeadsService {
       );
     }
 
-    return this.mapLead(saved);
+    return { ...this.mapLeadForAdmin(saved), settlement };
+  }
+
+  private assertAdminStatusTransition(
+    current: VendorLeadStatus,
+    next: VendorLeadStatus,
+  ): void {
+    if (current === next) return;
+
+    const vendorActionStatuses = [
+      VendorLeadStatus.ACCEPTED,
+      VendorLeadStatus.REJECTED,
+      VendorLeadStatus.IN_PROGRESS,
+      VendorLeadStatus.COMPLETED,
+    ];
+
+    if (
+      current === VendorLeadStatus.PENDING_ADMIN_REVIEW &&
+      vendorActionStatuses.includes(next)
+    ) {
+      throw new BadRequestException(
+        'Approve the lead before setting vendor workflow statuses',
+      );
+    }
+
+    if (
+      current === VendorLeadStatus.ADMIN_REJECTED &&
+      vendorActionStatuses.includes(next)
+    ) {
+      throw new BadRequestException(
+        'Admin-rejected leads cannot move to vendor workflow statuses',
+      );
+    }
+  }
+
+  async adminReopenSettlement(
+    id: number,
+    reason: string,
+    adminUserId: number,
+  ): Promise<VendorLeadResponse & { reopen: { message: string } }> {
+    const lead = await this.leadRepo.findOneBy({ id });
+    if (!lead) {
+      throw new NotFoundException(`Vendor lead ${id} not found`);
+    }
+    if (
+      lead.status !== VendorLeadStatus.COMPLETED ||
+      lead.jobAmount == null ||
+      Number(lead.jobAmount) <= 0
+    ) {
+      throw new BadRequestException(
+        'Only completed leads with a job amount can have settlement adjusted.',
+      );
+    }
+
+    const reopen = await this.walletService.reopenJobSettlement(
+      id,
+      reason,
+      adminUserId,
+    );
+
+    return { ...this.mapLeadForAdmin(lead), reopen };
   }
 
   async createFromServiceRequest(
@@ -310,7 +491,7 @@ export class VendorLeadsService {
       where: { serviceRequestId, vendorUserId },
     });
     if (existing) {
-      return this.mapLead(existing);
+      return this.mapLeadForAdmin(existing);
     }
     const commissionPercent = await this.walletService.getCommissionPercent();
     const requirement =
@@ -326,7 +507,7 @@ export class VendorLeadsService {
       budget: null,
       requirement,
       preferredDate: sr.preferredDate,
-      status: VendorLeadStatus.NEW,
+      status: VendorLeadStatus.PENDING_ADMIN_REVIEW,
       commissionPercent,
     });
     const saved = await this.leadRepo.save(lead);
@@ -334,11 +515,11 @@ export class VendorLeadsService {
     await this.notifyLead(
       vendorUserId,
       NotificationType.VENDOR_LEAD_ASSIGNED,
-      'New lead assigned',
-      `Customer: ${saved.customerName}`,
+      'Lead assigned — awaiting admin approval',
+      `Customer: ${saved.customerName}. You can accept or reject after admin approves this lead.`,
       { leadId: saved.id, serviceRequestId },
     );
-    return this.mapLead(saved);
+    return this.mapLeadForAdmin(saved);
   }
 
   private async getOwnedLead(
@@ -365,7 +546,8 @@ export class VendorLeadsService {
 
     const nextStatus = this.serviceRequestStatusForLead(lead.status);
     const shouldClearAssignedVendor =
-      lead.status === VendorLeadStatus.REJECTED &&
+      (lead.status === VendorLeadStatus.REJECTED ||
+        lead.status === VendorLeadStatus.ADMIN_REJECTED) &&
       serviceRequest.assignedVendorUserId === lead.vendorUserId;
     if (serviceRequest.status === nextStatus && !shouldClearAssignedVendor) {
       return;
@@ -390,13 +572,16 @@ export class VendorLeadsService {
     ) {
       return ServiceRequestStatus.SCHEDULED;
     }
-    if (status === VendorLeadStatus.REJECTED) {
+    if (
+      status === VendorLeadStatus.REJECTED ||
+      status === VendorLeadStatus.ADMIN_REJECTED
+    ) {
       return ServiceRequestStatus.NEW;
     }
     return ServiceRequestStatus.CONTACTED;
   }
 
-  private mapLead(lead: VendorLead): VendorLeadResponse {
+  private mapLeadForAdmin(lead: VendorLead): VendorLeadResponse {
     return {
       id: lead.id,
       vendorUserId: lead.vendorUserId,
@@ -412,6 +597,33 @@ export class VendorLeadsService {
       jobAmount: lead.jobAmount != null ? Number(lead.jobAmount) : null,
       createdAt: lead.createdAt,
       updatedAt: lead.updatedAt,
+      adminApprovedAt: lead.adminApprovedAt,
+      adminApprovedByUserId: lead.adminApprovedByUserId,
+      adminApprovalNotes: lead.adminApprovalNotes,
+      adminRejectedAt: lead.adminRejectedAt,
+      adminRejectedByUserId: lead.adminRejectedByUserId,
+      adminRejectionReason: lead.adminRejectionReason,
+    };
+  }
+
+  private mapLeadForVendor(lead: VendorLead): VendorLeadResponse {
+    const contactAvailable = this.isContactAvailable(lead);
+    return {
+      id: lead.id,
+      vendorUserId: lead.vendorUserId,
+      serviceRequestId: lead.serviceRequestId,
+      customerName: lead.customerName,
+      area: lead.area,
+      budget: lead.budget,
+      requirement: lead.requirement,
+      preferredDate: lead.preferredDate,
+      status: lead.status,
+      commissionPercent: Number(lead.commissionPercent),
+      jobAmount: lead.jobAmount != null ? Number(lead.jobAmount) : null,
+      createdAt: lead.createdAt,
+      updatedAt: lead.updatedAt,
+      contactAvailable,
+      contactPhone: null,
     };
   }
 

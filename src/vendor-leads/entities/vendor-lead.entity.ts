@@ -8,7 +8,11 @@ import {
 } from 'typeorm';
 
 export enum VendorLeadStatus {
+  /** @deprecated Migrated to open — do not assign for new leads */
   NEW = 'new',
+  PENDING_ADMIN_REVIEW = 'pending_admin_review',
+  OPEN = 'open',
+  ADMIN_REJECTED = 'admin_rejected',
   ACCEPTED = 'accepted',
   REJECTED = 'rejected',
   IN_PROGRESS = 'in_progress',
@@ -49,7 +53,7 @@ export class VendorLead {
   @Column({
     type: 'varchar',
     length: 32,
-    default: VendorLeadStatus.NEW,
+    default: VendorLeadStatus.PENDING_ADMIN_REVIEW,
   })
   status: VendorLeadStatus;
 
@@ -58,6 +62,24 @@ export class VendorLead {
 
   @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true })
   jobAmount: number | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  adminApprovedAt: Date | null;
+
+  @Column({ type: 'int', nullable: true })
+  adminApprovedByUserId: number | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  adminApprovalNotes: string | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  adminRejectedAt: Date | null;
+
+  @Column({ type: 'int', nullable: true })
+  adminRejectedByUserId: number | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  adminRejectionReason: string | null;
 
   @CreateDateColumn()
   createdAt: Date;

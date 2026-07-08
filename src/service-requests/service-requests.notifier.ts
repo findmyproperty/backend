@@ -367,7 +367,7 @@ export class ServiceRequestsNotifier {
       '',
       `The ${label} service request #${request.id} changed from "${previousStatus}" to "${request.status}".`,
       `Customer: ${request.name}`,
-      `Phone: ${request.phone}`,
+      ...(recipient === 'vendor' ? [] : [`Phone: ${request.phone}`]),
     ].join('\n');
   }
 
@@ -388,7 +388,11 @@ export class ServiceRequestsNotifier {
         <p>${intro}</p>
         <p>The <b>${escapeHtmlForEmail(label)}</b> service request <b>#${request.id}</b> changed from
           <b>${escapeHtmlForEmail(previousStatus)}</b> to <b>${escapeHtmlForEmail(request.status)}</b>.</p>
-        <p>Customer: ${escapeHtmlForEmail(request.name)}<br/>Phone: ${escapeHtmlForEmail(request.phone)}</p>
+        <p>Customer: ${escapeHtmlForEmail(request.name)}${
+          recipient === 'vendor'
+            ? ''
+            : `<br/>Phone: ${escapeHtmlForEmail(request.phone)}`
+        }</p>
       </div>
     `;
   }
@@ -463,11 +467,11 @@ export class ServiceRequestsNotifier {
 
   private buildCustomerContactRows(
     request: ServiceRequest,
+    options: { includePhone?: boolean } = {},
   ): Array<[string, string]> {
-    const rows: Array<[string, string]> = [
-      ['Name', request.name],
-      ['Phone', request.phone],
-    ];
+    const includePhone = options.includePhone ?? true;
+    const rows: Array<[string, string]> = [['Name', request.name]];
+    if (includePhone) rows.push(['Phone', request.phone]);
     if (request.email) rows.push(['Email', request.email]);
     if (request.city) rows.push(['City', request.city]);
     if (request.addressLine) rows.push(['Address', request.addressLine]);
@@ -481,7 +485,9 @@ export class ServiceRequestsNotifier {
 
   private buildVendorContactRows(
     vendor: VendorContactInfo | null,
+    options: { includePhone?: boolean } = {},
   ): Array<[string, string]> {
+    const includePhone = options.includePhone ?? true;
     if (!vendor) return [['Vendor', 'Details unavailable']];
     const rows: Array<[string, string]> = [];
     const displayName =
@@ -489,7 +495,7 @@ export class ServiceRequestsNotifier {
     rows.push(['Business / name', displayName]);
     if (vendor.name?.trim() && vendor.businessName?.trim())
       rows.push(['Contact person', vendor.name.trim()]);
-    if (vendor.phone?.trim()) rows.push(['Phone', vendor.phone.trim()]);
+    if (includePhone && vendor.phone?.trim()) rows.push(['Phone', vendor.phone.trim()]);
     if (vendor.email?.trim()) rows.push(['Email', vendor.email.trim()]);
     if (vendor.category) {
       rows.push([
@@ -583,10 +589,26 @@ export class ServiceRequestsNotifier {
     const sections: string[] = [intro, '', detail, ''];
 
     if (recipient === 'admin' || recipient === 'vendor') {
-      sections.push('-- Customer details --', this.buildCustomerContactText(request), '');
+      sections.push(
+        '-- Customer details --',
+        this.buildCustomerContactRows(request, {
+          includePhone: recipient === 'admin',
+        })
+          .map(([label, value]) => `${label}: ${value}`)
+          .join('\n'),
+        '',
+      );
     }
     if (recipient === 'admin' || recipient === 'customer') {
-      sections.push('-- Vendor details --', this.buildVendorContactText(vendor), '');
+      sections.push(
+        '-- Vendor details --',
+        this.buildVendorContactRows(vendor, {
+          includePhone: recipient === 'admin',
+        })
+          .map(([label, value]) => `${label}: ${value}`)
+          .join('\n'),
+        '',
+      );
     }
     sections.push(
       recipient === 'customer'
@@ -624,7 +646,9 @@ export class ServiceRequestsNotifier {
       sections.push(
         this.buildInfoTableHtml(
           'Customer details',
-          this.buildCustomerContactRows(request),
+          this.buildCustomerContactRows(request, {
+            includePhone: recipient === 'admin',
+          }),
         ),
       );
     }
@@ -632,7 +656,9 @@ export class ServiceRequestsNotifier {
       sections.push(
         this.buildInfoTableHtml(
           recipient === 'customer' ? 'Assigned vendor' : 'Vendor details',
-          this.buildVendorContactRows(vendor),
+          this.buildVendorContactRows(vendor, {
+            includePhone: recipient === 'admin',
+          }),
         ),
       );
     }

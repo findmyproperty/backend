@@ -224,6 +224,20 @@ export class RazorpayService {
     });
   }
 
+  fetchPaymentLink(paymentLinkId: string): Promise<RazorpayPaymentLink> {
+    return this.request<RazorpayPaymentLink>(
+      'GET',
+      `/payment_links/${paymentLinkId}`,
+    );
+  }
+
+  cancelPaymentLink(paymentLinkId: string): Promise<RazorpayPaymentLink> {
+    return this.request<RazorpayPaymentLink>(
+      'POST',
+      `/payment_links/${paymentLinkId}/cancel`,
+    );
+  }
+
   verifyWebhookSignature(rawBody: Buffer, signature: string): boolean {
     const secret = this.getRequiredConfig('RAZORPAY_WEBHOOK_SECRET');
     const expected = createHmac('sha256', secret).update(rawBody).digest('hex');

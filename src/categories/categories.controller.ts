@@ -30,18 +30,16 @@ function assertAdmin(req: RequestWithUser): void {
   }
 }
 
-@UseGuards(JwtAuthGuard)
 @Controller('categories')
 export class CategoriesController {
   constructor(private readonly categoriesService: CategoriesService) {}
 
   @Get()
-  async findAll(@Req() req: RequestWithUser) {
-    // Any authenticated user can read the list (frontend falls back for non-admins anyway).
-    // Management UI is only shown to admins.
+  async findAll() {
     return this.categoriesService.findAll();
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post()
   async create(
     @Body() createCategoryDto: CreateCategoryDto,
@@ -51,6 +49,7 @@ export class CategoriesController {
     return this.categoriesService.create(createCategoryDto);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Patch(':id')
   async update(
     @Param('id', ParseIntPipe) id: number,
@@ -61,6 +60,7 @@ export class CategoriesController {
     return this.categoriesService.update(id, updateCategoryDto);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Delete(':id')
   async remove(
     @Param('id', ParseIntPipe) id: number,

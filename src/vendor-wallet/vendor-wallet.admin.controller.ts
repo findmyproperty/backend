@@ -17,6 +17,7 @@ import { ListLedgerQueryDto } from './dto/list-ledger.query.dto';
 import { AdminPayoutDto } from './dto/admin-payout.dto';
 import { AdminCreatePayoutDto } from './dto/admin-create-payout.dto';
 import { AdminCreditWalletDto } from './dto/admin-credit-wallet.dto';
+import { ListWithdrawalsQueryDto } from './dto/list-withdrawals.query.dto';
 
 interface RequestWithUser extends Request {
   user?: { userId: number; role: string };
@@ -47,7 +48,19 @@ export class VendorWalletAdminController {
     if (req.user?.role !== 'admin') {
       throw new ForbiddenException('Only admins');
     }
-    return this.walletService.listEntries(vendorUserId, query);
+    return this.walletService.listEntries(vendorUserId, query, true);
+  }
+
+  @Get(':vendorUserId/withdrawals')
+  async withdrawals(
+    @Req() req: RequestWithUser,
+    @Param('vendorUserId', ParseIntPipe) vendorUserId: number,
+    @Query() query: ListWithdrawalsQueryDto,
+  ) {
+    if (req.user?.role !== 'admin') {
+      throw new ForbiddenException('Only admins');
+    }
+    return this.walletService.listWithdrawals(vendorUserId, query);
   }
 
   @Get(':vendorUserId/payout-accounts')
@@ -89,5 +102,27 @@ export class VendorWalletAdminController {
       throw new ForbiddenException('Only admins');
     }
     return this.walletService.adminCreditWallet(req.user.userId, dto);
+  }
+
+  @Post('credits/:ledgerEntryId/sync')
+  async syncCreditPayment(
+    @Req() req: RequestWithUser,
+    @Param('ledgerEntryId', ParseIntPipe) ledgerEntryId: number,
+  ) {
+    if (req.user?.role !== 'admin') {
+      throw new ForbiddenException('Only admins');
+    }
+    return this.walletService.adminSyncCreditPayment(ledgerEntryId);
+  }
+
+  @Post('credits/:ledgerEntryId/cancel')
+  async cancelCreditPayment(
+    @Req() req: RequestWithUser,
+    @Param('ledgerEntryId', ParseIntPipe) ledgerEntryId: number,
+  ) {
+    if (req.user?.role !== 'admin') {
+      throw new ForbiddenException('Only admins');
+    }
+    return this.walletService.adminCancelCreditPayment(ledgerEntryId);
   }
 }

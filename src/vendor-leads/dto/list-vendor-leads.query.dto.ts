@@ -11,6 +11,12 @@ export class ListVendorLeadsQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  serviceRequestId?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   page?: number = 1;
 
   @IsOptional()

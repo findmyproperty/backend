@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -44,6 +45,8 @@ export interface WalletSummary {
   pendingSettlement: number;
   availableBalance: number;
   pendingPayouts: number;
+  pendingPaymentCredits: number;
+  pendingPaymentCreditAmount: number;
   paidOut: number;
   commissionDeducted: number;
 }
@@ -57,6 +60,8 @@ export interface LedgerEntryResponse {
   status: string;
   description: string | null;
   externalReferenceId: string | null;
+  webhookEventId?: string | null;
+  metadata?: Record<string, unknown> | null;
   createdAt: Date;
 }
 
@@ -69,6 +74,32 @@ export interface AdminCreditWalletResponse {
     amount: number;
     currency: string;
   };
+}
+
+export interface AdminCreditPaymentActionResponse {
+  entry: LedgerEntryResponse;
+  linkStatus: string;
+  message: string;
+  resolved: boolean;
+}
+
+export interface JobSettlementInitResponse {
+  vendorLeadId: number;
+  netAmount: number;
+  commissionAmount: number;
+  ledgerStatus: string;
+  paymentLink: {
+    id: string;
+    shortUrl: string | null;
+    status: string;
+    amount: number;
+    currency: string;
+  } | null;
+  message: string;
+}
+
+export interface ReopenJobSettlementResponse {
+  message: string;
 }
 
 export interface PayoutAccountResponse {
@@ -111,6 +142,8 @@ export interface WithdrawalResponse {
 
 @Injectable()
 export class VendorWalletService {
+  private readonly logger = new Logger(VendorWalletService.name);
+
   constructor(
     @InjectRepository(VendorLedgerEntry)
     private readonly ledgerRepo: Repository<VendorLedgerEntry>,
@@ -131,6 +164,241 @@ export class VendorWalletService {
     return Number.isFinite(pct) && pct >= 0 ? pct : 10;
   }
 
+  async initiateJobSettlement(
+    adminUserId: number,
+    vendorUserId: number,
+    vendorLeadId: number,
+    jobAmount: number,
+    commissionPercent: number,
+  ): Promise<JobSettlementInitResponse> {
+    const amount = Number(jobAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('jobAmount must be a positive number');
+    }
+    const pct = Number(commissionPercent);
+    const commission = Math.round(((amount * pct) / 100) * 100) / 100;
+    const net = Math.round((amount - commission) * 100) / 100;
+
+    const existingEarning = await this.ledgerRepo.findOne({
+      where: { vendorLeadId, type: VendorLedgerType.EARNING },
+    });
+
+    if (existingEarning?.status === VendorLedgerStatus.PENDING) {
+      return {
+        vendorLeadId,
+        netAmount: Number(existingEarning.amount),
+        commissionAmount: commission,
+        ledgerStatus: existingEarning.status,
+        paymentLink: null,
+        message:
+          'Job settlement is already paid. The vendor wallet has been credited.',
+      };
+    }
+
+    if (existingEarning?.status === VendorLedgerStatus.PAYMENT_PENDING) {
+      const paymentLinkMeta = existingEarning.metadata?.paymentLink as
+        | Record<string, unknown>
+        | undefined;
+      return {
+        vendorLeadId,
+        netAmount: Number(existingEarning.amount),
+        commissionAmount: commission,
+        ledgerStatus: existingEarning.status,
+        paymentLink: paymentLinkMeta
+          ? {
+              id: String(paymentLinkMeta.id ?? existingEarning.externalReferenceId ?? ''),
+              shortUrl:
+                typeof paymentLinkMeta.short_url === 'string'
+                  ? paymentLinkMeta.short_url
+                  : null,
+              status: String(paymentLinkMeta.status ?? 'created'),
+              amount: Number(paymentLinkMeta.amount ?? this.toPaise(net)),
+              currency: String(paymentLinkMeta.currency ?? 'INR'),
+            }
+          : null,
+        message: `Pay INR ${Number(existingEarning.amount)} to credit the vendor wallet for this job.`,
+      };
+    }
+
+    const existingCommission = await this.ledgerRepo.findOne({
+      where: { vendorLeadId, type: VendorLedgerType.COMMISSION },
+    });
+    if (!existingCommission) {
+      await this.ledgerRepo.save(
+        this.ledgerRepo.create({
+          vendorUserId,
+          vendorLeadId,
+          type: VendorLedgerType.COMMISSION,
+          amount: commission,
+          status: VendorLedgerStatus.SETTLED,
+          description: `FMP commission ${pct}% (lead #${vendorLeadId})`,
+        }),
+      );
+    } else if (Number(existingCommission.amount) !== commission) {
+      existingCommission.amount = commission;
+      existingCommission.description = `FMP commission ${pct}% (lead #${vendorLeadId})`;
+      await this.ledgerRepo.save(existingCommission);
+    }
+
+    let entry = existingEarning;
+    if (entry?.status === VendorLedgerStatus.FAILED) {
+      entry.status = VendorLedgerStatus.PAYMENT_PENDING;
+      entry.amount = net;
+      entry.description = `Job earning (lead #${vendorLeadId})`;
+      entry.externalReferenceId = null;
+      entry.webhookEventId = null;
+      entry.metadata = null;
+    } else if (!entry) {
+      entry = this.ledgerRepo.create({
+        vendorUserId,
+        vendorLeadId,
+        type: VendorLedgerType.EARNING,
+        amount: net,
+        status: VendorLedgerStatus.PAYMENT_PENDING,
+        description: `Job earning (lead #${vendorLeadId})`,
+        externalReferenceId: null,
+        webhookEventId: null,
+        metadata: null,
+      });
+    } else {
+      throw new BadRequestException(
+        'This job already has a wallet entry in an unexpected state.',
+      );
+    }
+
+    entry = await this.ledgerRepo.save(entry);
+
+    const [adminUser, vendorUser] = await Promise.all([
+      this.usersService.findOne(adminUserId),
+      this.usersService.findOne(vendorUserId),
+    ]);
+
+    const paymentLink = await this.razorpayService.createPaymentLink({
+      amountPaise: this.toPaise(net),
+      currency: 'INR',
+      referenceId: this.makeReference('js', vendorLeadId),
+      description: `Job settlement for lead #${vendorLeadId}`,
+      customer: {
+        name: adminUser.name || 'Admin',
+        email: adminUser.email,
+        contact: this.normalizePhoneForRazorpay(adminUser.phone),
+      },
+      notify: {
+        sms: Boolean(adminUser.phone),
+        email: Boolean(adminUser.email),
+      },
+      notes: {
+        purpose: 'vendor_job_settlement',
+        vendor_user_id: vendorUserId,
+        vendor_lead_id: vendorLeadId,
+        vendor_wallet_ledger_id: entry.id,
+        vendor_name: vendorUser.name ?? undefined,
+        job_amount: amount,
+        commission_percent: pct,
+      },
+    });
+
+    entry.externalReferenceId = paymentLink.id;
+    entry.metadata = {
+      paymentLink: this.sanitizePaymentLink(paymentLink),
+      jobAmount: amount,
+      commissionPercent: pct,
+    };
+    await this.ledgerRepo.save(entry);
+
+    return {
+      vendorLeadId,
+      netAmount: net,
+      commissionAmount: commission,
+      ledgerStatus: VendorLedgerStatus.PAYMENT_PENDING,
+      paymentLink: {
+        id: paymentLink.id,
+        shortUrl: paymentLink.short_url ?? null,
+        status: paymentLink.status,
+        amount: paymentLink.amount,
+        currency: paymentLink.currency,
+      },
+      message: `Pay INR ${net} to credit the vendor wallet. Job amount INR ${amount} minus ${pct}% commission.`,
+    };
+  }
+
+  async reopenJobSettlement(
+    vendorLeadId: number,
+    reason: string,
+    adminUserId: number,
+  ): Promise<ReopenJobSettlementResponse> {
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      throw new BadRequestException('Reason is required to adjust settlement.');
+    }
+
+    const entry = await this.ledgerRepo.findOne({
+      where: { vendorLeadId, type: VendorLedgerType.EARNING },
+    });
+
+    if (!entry) {
+      return {
+        message:
+          'No payment has been issued yet. Update the job amount and issue a new payment link.',
+      };
+    }
+
+    if (entry.status === VendorLedgerStatus.PENDING) {
+      throw new BadRequestException(
+        'This job is already paid and credited to the vendor wallet. Settlement cannot be adjusted.',
+      );
+    }
+
+    const reopenMetadata = {
+      reopenReason: trimmedReason,
+      reopenedByAdminId: adminUserId,
+      reopenedAt: new Date().toISOString(),
+    };
+
+    if (
+      entry.status === VendorLedgerStatus.PAYMENT_PENDING &&
+      entry.externalReferenceId
+    ) {
+      const paymentLink = await this.razorpayService.fetchPaymentLink(
+        entry.externalReferenceId,
+      );
+      if (paymentLink.status === 'paid') {
+        throw new BadRequestException(
+          'Payment already received. The vendor wallet has been credited.',
+        );
+      }
+      if (paymentLink.status === 'created') {
+        await this.razorpayService.cancelPaymentLink(entry.externalReferenceId);
+      }
+      await this.markVendorCreditPaymentFailed(
+        entry,
+        paymentLink as unknown as Record<string, unknown>,
+        `admin-reopen-${adminUserId}`,
+        'admin_reopened',
+        reopenMetadata,
+      );
+      return {
+        message:
+          'Open payment link cancelled. Update the job amount and issue a new payment link.',
+      };
+    }
+
+    if (entry.status === VendorLedgerStatus.FAILED) {
+      entry.metadata = {
+        ...(entry.metadata ?? {}),
+        ...reopenMetadata,
+      };
+      await this.ledgerRepo.save(entry);
+      return {
+        message:
+          'Settlement unlocked. Update the job amount and issue a new payment link.',
+      };
+    }
+
+    throw new BadRequestException('This job settlement cannot be adjusted.');
+  }
+
+  /** @deprecated Use initiateJobSettlement — wallet credits only after Razorpay payment. */
   async recordJobCompletion(
     vendorUserId: number,
     vendorLeadId: number,
@@ -176,11 +444,20 @@ export class VendorWalletService {
     const entries = await this.ledgerRepo.find({ where: { vendorUserId } });
     let totalEarnings = 0;
     let pendingPayouts = 0;
+    let pendingPaymentCredits = 0;
+    let pendingPaymentCreditAmount = 0;
     let paidOut = 0;
     let commissionDeducted = 0;
 
     for (const entry of entries) {
       const amount = Number(entry.amount);
+      if (
+        entry.type === VendorLedgerType.EARNING &&
+        entry.status === VendorLedgerStatus.PAYMENT_PENDING
+      ) {
+        pendingPaymentCredits += 1;
+        pendingPaymentCreditAmount += amount;
+      }
       if (
         entry.type === VendorLedgerType.EARNING &&
         entry.status !== VendorLedgerStatus.PAYMENT_PENDING &&
@@ -215,6 +492,8 @@ export class VendorWalletService {
       pendingSettlement: this.roundMoney(availableBalance),
       availableBalance: this.roundMoney(availableBalance),
       pendingPayouts: this.roundMoney(pendingPayouts),
+      pendingPaymentCredits,
+      pendingPaymentCreditAmount: this.roundMoney(pendingPaymentCreditAmount),
       paidOut: this.roundMoney(paidOut),
       commissionDeducted: this.roundMoney(commissionDeducted),
     };
@@ -223,6 +502,7 @@ export class VendorWalletService {
   async listEntries(
     vendorUserId: number,
     query: ListLedgerQueryDto,
+    includeTrackingDetails = false,
   ): Promise<{
     items: LedgerEntryResponse[];
     total: number;
@@ -238,7 +518,7 @@ export class VendorWalletService {
       take: limit,
     });
     return {
-      items: rows.map((row) => this.mapEntry(row)),
+      items: rows.map((row) => this.mapEntry(row, includeTrackingDetails)),
       total,
       page,
       limit,
@@ -297,7 +577,7 @@ export class VendorWalletService {
         type: VendorLedgerType.EARNING,
         amount,
         status: VendorLedgerStatus.PAYMENT_PENDING,
-        description: dto.description?.trim() || 'Admin wallet credit',
+        description: dto.description?.trim() || 'Manual wallet top-up',
         externalReferenceId: null,
         webhookEventId: null,
         metadata: null,
@@ -308,7 +588,7 @@ export class VendorWalletService {
       amountPaise,
       currency: 'INR',
       referenceId: this.makeReference('vc', dto.vendorUserId),
-      description: dto.description?.trim() || 'Vendor wallet credit',
+      description: dto.description?.trim() || 'Manual wallet top-up',
       customer: {
         name: adminUser.name || 'Admin',
         email: adminUser.email,
@@ -529,6 +809,10 @@ export class VendorWalletService {
     const payoutId = String(payout.id ?? '');
     const referenceId = String(payout.reference_id ?? '');
 
+    this.logger.log(
+      `Handling payout webhook payoutId=${payoutId || 'n/a'} referenceId=${referenceId || 'n/a'} status=${String(payout.status ?? '')} eventId=${webhookEventId}`,
+    );
+
     let withdrawal: VendorWithdrawal | null = null;
     if (payoutId) {
       withdrawal = await this.withdrawalRepo.findOne({
@@ -540,7 +824,16 @@ export class VendorWalletService {
         where: { referenceId },
       });
     }
-    if (!withdrawal) return null;
+    if (!withdrawal) {
+      this.logger.warn(
+        `No withdrawal found for payout webhook payoutId=${payoutId || 'n/a'} referenceId=${referenceId || 'n/a'} eventId=${webhookEventId}`,
+      );
+      return null;
+    }
+
+    this.logger.log(
+      `Matched payout webhook to withdrawalId=${withdrawal.id} currentStatus=${withdrawal.status}`,
+    );
 
     return this.applyPayoutUpdate(
       withdrawal,
@@ -558,7 +851,7 @@ export class VendorWalletService {
 
     this.assertPaymentAmountMatches(entry, payment);
 
-    if (entry.status !== VendorLedgerStatus.PENDING) {
+    if (entry.status === VendorLedgerStatus.PAYMENT_PENDING) {
       entry.status = VendorLedgerStatus.PENDING;
       entry.webhookEventId = webhookEventId;
       entry.metadata = {
@@ -588,14 +881,38 @@ export class VendorWalletService {
       return null;
     }
 
-    entry.status = VendorLedgerStatus.FAILED;
-    entry.webhookEventId = webhookEventId;
-    entry.metadata = {
-      ...(entry.metadata ?? {}),
-      failedPayment: this.sanitizePayment(payment),
-    };
-    const saved = await this.ledgerRepo.save(entry);
-    return this.mapEntry(saved);
+    return this.markVendorCreditPaymentFailed(
+      entry,
+      null,
+      webhookEventId,
+      'payment_failed',
+      {
+        failedPayment: this.sanitizePayment(payment),
+      },
+    );
+  }
+
+  async handleVendorCreditPaymentLinkClosed(
+    paymentLink: Record<string, unknown>,
+    webhookEventId: string,
+    reason: 'cancelled' | 'expired',
+  ): Promise<LedgerEntryResponse | null> {
+    const paymentLinkId = String(paymentLink.id ?? '');
+    if (!paymentLinkId) return null;
+
+    const entry = await this.ledgerRepo.findOne({
+      where: { externalReferenceId: paymentLinkId },
+    });
+    if (!entry || entry.status !== VendorLedgerStatus.PAYMENT_PENDING) {
+      return null;
+    }
+
+    return this.markVendorCreditPaymentFailed(
+      entry,
+      paymentLink,
+      webhookEventId,
+      reason,
+    );
   }
 
   async handleVendorCreditPaymentLinkPaid(
@@ -610,16 +927,187 @@ export class VendorWalletService {
     });
     if (!entry) return null;
 
+    return this.applyVendorCreditPaymentLinkPaid(
+      entry,
+      paymentLink,
+      webhookEventId,
+    );
+  }
+
+  async adminSyncCreditPayment(
+    ledgerEntryId: number,
+  ): Promise<AdminCreditPaymentActionResponse> {
+    const entry = await this.requirePendingCreditEntry(ledgerEntryId);
+    const paymentLink = await this.razorpayService.fetchPaymentLink(
+      entry.externalReferenceId!,
+    );
+    return this.resolveCreditPaymentFromLink(
+      entry,
+      paymentLink as unknown as Record<string, unknown>,
+      'admin-sync',
+      true,
+    );
+  }
+
+  async adminCancelCreditPayment(
+    ledgerEntryId: number,
+  ): Promise<AdminCreditPaymentActionResponse> {
+    const entry = await this.requirePendingCreditEntry(ledgerEntryId);
+    const paymentLinkId = entry.externalReferenceId!;
+
+    let paymentLink = await this.razorpayService.fetchPaymentLink(paymentLinkId);
+    if (paymentLink.status === 'paid') {
+      return this.resolveCreditPaymentFromLink(
+        entry,
+        paymentLink as unknown as Record<string, unknown>,
+        'admin-cancel',
+        true,
+      );
+    }
+
+    if (paymentLink.status === 'created') {
+      paymentLink = await this.razorpayService.cancelPaymentLink(paymentLinkId);
+    }
+
+    const resolved = await this.markVendorCreditPaymentFailed(
+      entry,
+      paymentLink as unknown as Record<string, unknown>,
+      'admin-cancel',
+      'admin_cancelled',
+      undefined,
+      true,
+    );
+
+    return {
+      entry: resolved,
+      linkStatus: paymentLink.status,
+      message:
+        'Payment link cancelled. You can create a new manual credit now.',
+      resolved: true,
+    };
+  }
+
+  private async requirePendingCreditEntry(
+    ledgerEntryId: number,
+  ): Promise<VendorLedgerEntry> {
+    const entry = await this.ledgerRepo.findOne({ where: { id: ledgerEntryId } });
+    if (!entry) {
+      throw new NotFoundException(`Ledger entry ${ledgerEntryId} not found`);
+    }
+    if (entry.status !== VendorLedgerStatus.PAYMENT_PENDING) {
+      throw new BadRequestException(
+        'Only payment_pending wallet credits can be updated.',
+      );
+    }
+    if (!entry.externalReferenceId) {
+      throw new BadRequestException(
+        'This ledger entry has no payment link reference.',
+      );
+    }
+    return entry;
+  }
+
+  private async resolveCreditPaymentFromLink(
+    entry: VendorLedgerEntry,
+    paymentLink: Record<string, unknown>,
+    webhookEventId: string,
+    includeTrackingDetails = false,
+  ): Promise<AdminCreditPaymentActionResponse> {
+    const linkStatus = String(paymentLink.status ?? 'unknown');
+
+    if (linkStatus === 'paid') {
+      const resolvedEntry = await this.applyVendorCreditPaymentLinkPaid(
+        entry,
+        paymentLink,
+        webhookEventId,
+        includeTrackingDetails,
+      );
+      return {
+        entry: resolvedEntry,
+        linkStatus,
+        message: 'Payment received. Wallet credit is now available.',
+        resolved: true,
+      };
+    }
+
+    if (linkStatus === 'cancelled' || linkStatus === 'expired') {
+      const resolvedEntry = await this.markVendorCreditPaymentFailed(
+        entry,
+        paymentLink,
+        webhookEventId,
+        linkStatus,
+        undefined,
+        includeTrackingDetails,
+      );
+      return {
+        entry: resolvedEntry,
+        linkStatus,
+        message:
+          linkStatus === 'expired'
+            ? 'Payment link expired. You can create a new manual credit now.'
+            : 'Payment link was cancelled. You can create a new manual credit now.',
+        resolved: true,
+      };
+    }
+
+    return {
+      entry: this.mapEntry(entry, includeTrackingDetails),
+      linkStatus,
+      message:
+        'Payment link is still open. Pay via Open link, or cancel it if you no longer need this credit.',
+      resolved: false,
+    };
+  }
+
+  private async markVendorCreditPaymentFailed(
+    entry: VendorLedgerEntry,
+    paymentLink: Record<string, unknown> | null,
+    webhookEventId: string,
+    reason: string,
+    extraMetadata?: Record<string, unknown>,
+    includeTrackingDetails = false,
+  ): Promise<LedgerEntryResponse> {
+    if (entry.status !== VendorLedgerStatus.PAYMENT_PENDING) {
+      return this.mapEntry(entry, includeTrackingDetails);
+    }
+
+    entry.status = VendorLedgerStatus.FAILED;
+    entry.webhookEventId = webhookEventId;
+    entry.metadata = {
+      ...(entry.metadata ?? {}),
+      ...(extraMetadata ?? {}),
+      closeReason: reason,
+      ...(paymentLink
+        ? {
+            paymentLink: {
+              ...(entry.metadata?.paymentLink as
+                | Record<string, unknown>
+                | undefined),
+              ...this.sanitizePaymentLinkFromWebhook(paymentLink),
+            },
+          }
+        : {}),
+    };
+    const saved = await this.ledgerRepo.save(entry);
+    return this.mapEntry(saved, includeTrackingDetails);
+  }
+
+  private async applyVendorCreditPaymentLinkPaid(
+    entry: VendorLedgerEntry,
+    paymentLink: Record<string, unknown>,
+    webhookEventId: string,
+    includeTrackingDetails = false,
+  ): Promise<LedgerEntryResponse> {
     const paymentLinkAmount = Number(paymentLink.amount);
     const paymentLinkCurrency = String(paymentLink.currency ?? 'INR');
     if (
       paymentLinkAmount !== this.toPaise(Number(entry.amount)) ||
       paymentLinkCurrency !== 'INR'
     ) {
-      throw new BadRequestException('Razorpay payment link amount mismatch.');
+      throw new BadRequestException('Payment link amount mismatch.');
     }
 
-    if (entry.status !== VendorLedgerStatus.PENDING) {
+    if (entry.status === VendorLedgerStatus.PAYMENT_PENDING) {
       entry.status = VendorLedgerStatus.PENDING;
       entry.webhookEventId = webhookEventId;
       entry.metadata = {
@@ -640,7 +1128,7 @@ export class VendorWalletService {
       });
     }
 
-    return this.mapEntry(entry);
+    return this.mapEntry(entry, includeTrackingDetails);
   }
 
   private async applyPayoutUpdate(
@@ -650,6 +1138,10 @@ export class VendorWalletService {
   ): Promise<WithdrawalResponse> {
     const previousStatus = withdrawal.status;
     const nextStatus = this.mapRazorpayPayoutStatus(payout.status);
+
+    this.logger.log(
+      `Updating withdrawalId=${withdrawal.id} payoutId=${payout.id || withdrawal.razorpayPayoutId || 'n/a'} status ${previousStatus} -> ${nextStatus} eventId=${webhookEventId ?? 'create-response'}`,
+    );
 
     withdrawal.status = nextStatus;
     withdrawal.razorpayPayoutId = payout.id || withdrawal.razorpayPayoutId;
@@ -664,6 +1156,10 @@ export class VendorWalletService {
 
     const saved = await this.withdrawalRepo.save(withdrawal);
     await this.updateLedgerForWithdrawal(saved);
+
+    this.logger.log(
+      `Saved withdrawalId=${saved.id} status=${saved.status} ledgerEntryId=${saved.ledgerEntryId ?? 'n/a'} utr=${saved.utr ?? 'n/a'}`,
+    );
 
     if (
       nextStatus === VendorWithdrawalStatus.PROCESSED &&
@@ -724,6 +1220,9 @@ export class VendorWalletService {
       ledger.status = VendorLedgerStatus.PENDING;
     }
     await this.ledgerRepo.save(ledger);
+    this.logger.log(
+      `Updated payout ledger entryId=${ledger.id} for withdrawalId=${withdrawal.id} to ${ledger.status}`,
+    );
   }
 
   private async markWithdrawalFailedBeforePayout(
@@ -738,6 +1237,9 @@ export class VendorWalletService {
 
     ledger.status = VendorLedgerStatus.FAILED;
     await this.ledgerRepo.save(ledger);
+    this.logger.error(
+      `Withdrawal creation failed before payout withdrawalId=${withdrawal.id} ledgerEntryId=${ledger.id}: ${withdrawal.failureReason}`,
+    );
   }
 
   private async settlePendingEarnings(
@@ -775,7 +1277,8 @@ export class VendorWalletService {
 
     const ledgerId = Number(notes.vendor_wallet_ledger_id ?? 0);
     if (
-      purpose === 'vendor_wallet_credit' &&
+      (purpose === 'vendor_wallet_credit' ||
+        purpose === 'vendor_job_settlement') &&
       Number.isFinite(ledgerId) &&
       ledgerId > 0
     ) {
@@ -800,7 +1303,7 @@ export class VendorWalletService {
     const paymentAmount = Number(payment.amount);
     const paymentCurrency = String(payment.currency ?? 'INR');
     if (paymentAmount !== this.toPaise(Number(entry.amount)) || paymentCurrency !== 'INR') {
-      throw new BadRequestException('Razorpay payment amount mismatch.');
+      throw new BadRequestException('Payment amount mismatch.');
     }
   }
 
@@ -896,7 +1399,7 @@ export class VendorWalletService {
         : null;
     const reason =
       details && typeof details.reason === 'string' ? details.reason : null;
-    return description || reason || `Razorpay payout ${status}.`;
+    return description || reason || `Payout ${status}.`;
   }
 
   private getRazorpayXAccountNumber(): string {
@@ -1054,7 +1557,10 @@ export class VendorWalletService {
     return Math.round(value * 100) / 100;
   }
 
-  private mapEntry(entry: VendorLedgerEntry): LedgerEntryResponse {
+  private mapEntry(
+    entry: VendorLedgerEntry,
+    includeTrackingDetails = false,
+  ): LedgerEntryResponse {
     return {
       id: entry.id,
       vendorUserId: entry.vendorUserId,
@@ -1064,6 +1570,12 @@ export class VendorWalletService {
       status: entry.status,
       description: entry.description,
       externalReferenceId: entry.externalReferenceId,
+      ...(includeTrackingDetails
+        ? {
+            webhookEventId: entry.webhookEventId,
+            metadata: entry.metadata,
+          }
+        : {}),
       createdAt: entry.createdAt,
     };
   }

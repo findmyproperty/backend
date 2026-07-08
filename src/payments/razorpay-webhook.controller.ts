@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Controller,
   Headers,
+  Logger,
   Post,
   Req,
   UnauthorizedException,
@@ -21,6 +22,8 @@ interface RazorpayWebhookPayload {
 
 @Controller('payments/razorpay')
 export class RazorpayWebhookController {
+  private readonly logger = new Logger(RazorpayWebhookController.name);
+
   constructor(
     private readonly razorpayService: RazorpayService,
     private readonly webhookEvents: RazorpayWebhookEventsService,
@@ -56,21 +59,34 @@ export class RazorpayWebhookController {
       throw new BadRequestException('Razorpay webhook event id is missing.');
     }
 
+    this.logger.log(
+      `Received Razorpay webhook event=${eventType} eventId=${eventId}`,
+    );
+
     const { event, duplicate } = await this.webhookEvents.claim({
       eventId,
       eventType,
       payload: payload as Record<string, unknown>,
     });
     if (duplicate) {
+      this.logger.warn(
+        `Skipping duplicate Razorpay webhook event=${eventType} eventId=${eventId}`,
+      );
       return { received: true, duplicate: true };
     }
 
     try {
       await this.dispatch(eventType, payload, eventId);
       await this.webhookEvents.markProcessed(event);
+      this.logger.log(
+        `Processed Razorpay webhook event=${eventType} eventId=${eventId}`,
+      );
       return { received: true };
     } catch (error) {
       await this.webhookEvents.markFailed(event, error);
+      this.logger.error(
+        `Failed Razorpay webhook event=${eventType} eventId=${eventId}: ${String(error)}`,
+      );
       throw error;
     }
   }
@@ -82,6 +98,9 @@ export class RazorpayWebhookController {
   ): Promise<void> {
     if (eventType === 'payment.captured') {
       const payment = this.getEntity(payload, 'payment');
+      this.logger.log(
+        `Dispatching payment.captured paymentId=${String(payment.id ?? '')} orderId=${String(payment.order_id ?? '')}`,
+      );
       await this.adminWalletService.handlePaymentCaptured(payment, eventId);
       await this.vendorWalletService.handleVendorCreditPaymentCaptured(
         payment,
@@ -92,6 +111,9 @@ export class RazorpayWebhookController {
 
     if (eventType === 'payment.failed') {
       const payment = this.getEntity(payload, 'payment');
+      this.logger.warn(
+        `Dispatching payment.failed paymentId=${String(payment.id ?? '')} orderId=${String(payment.order_id ?? '')}`,
+      );
       await this.vendorWalletService.handleVendorCreditPaymentFailed(
         payment,
         eventId,
@@ -101,6 +123,9 @@ export class RazorpayWebhookController {
 
     if (eventType === 'payment_link.paid') {
       const paymentLink = this.getEntity(payload, 'payment_link');
+      this.logger.log(
+        `Dispatching payment_link.paid paymentLinkId=${String(paymentLink.id ?? '')}`,
+      );
       await this.vendorWalletService.handleVendorCreditPaymentLinkPaid(
         paymentLink,
         eventId,
@@ -108,14 +133,46 @@ export class RazorpayWebhookController {
       return;
     }
 
+    if (eventType === 'payment_link.cancelled') {
+      const paymentLink = this.getEntity(payload, 'payment_link');
+      this.logger.log(
+        `Dispatching payment_link.cancelled paymentLinkId=${String(paymentLink.id ?? '')}`,
+      );
+      await this.vendorWalletService.handleVendorCreditPaymentLinkClosed(
+        paymentLink,
+        eventId,
+        'cancelled',
+      );
+      return;
+    }
+
+    if (eventType === 'payment_link.expired') {
+      const paymentLink = this.getEntity(payload, 'payment_link');
+      this.logger.log(
+        `Dispatching payment_link.expired paymentLinkId=${String(paymentLink.id ?? '')}`,
+      );
+      await this.vendorWalletService.handleVendorCreditPaymentLinkClosed(
+        paymentLink,
+        eventId,
+        'expired',
+      );
+      return;
+    }
+
     if (eventType === 'order.paid') {
       const order = this.getEntity(payload, 'order');
+      this.logger.log(
+        `Dispatching order.paid orderId=${String(order.id ?? '')}`,
+      );
       await this.adminWalletService.handleOrderPaid(order, eventId);
       return;
     }
 
     if (eventType.startsWith('payout.')) {
       const payout = this.getEntity(payload, 'payout');
+      this.logger.log(
+        `Dispatching ${eventType} payoutId=${String(payout.id ?? '')} referenceId=${String(payout.reference_id ?? '')} status=${String(payout.status ?? '')}`,
+      );
       await this.vendorWalletService.handlePayoutWebhook(payout, eventId);
     }
   }
