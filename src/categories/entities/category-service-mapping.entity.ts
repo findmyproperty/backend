@@ -24,7 +24,7 @@ export class CategoryServiceMapping {
   category: Category;
 
   @Column({ type: 'varchar', length: 50 })
-  service: string; // 'packers_movers' | 'painting_cleaning' | 'home_services' | 'event_management'
+  service: string; // 'packers_movers' | 'painting_cleaning' | 'home_services' | 'event_management' | 'it' | 'general'
 
   @Column({ name: 'is_active', default: true })
   isActive: boolean;

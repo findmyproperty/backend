@@ -9,7 +9,9 @@ import { escapeHtmlForEmail } from '../helper/escape-html';
 import { BRAND_COLOR } from '../helper/email-theme';
 import {
   EventManagementDetails,
+  GeneralServicesDetails,
   HomeServicesDetails,
+  ItServicesDetails,
   PackersMoversDetails,
   PaintingCleaningDetails,
   ServiceRequest,
@@ -27,6 +29,8 @@ const SERVICE_LABELS: Record<ServiceType, string> = {
   [ServiceType.PAINTING_CLEANING]: 'Painting & Cleaning',
   [ServiceType.HOME_SERVICES]: 'Home Services',
   [ServiceType.EVENT_MANAGEMENT]: 'Event Management',
+  [ServiceType.IT]: 'IT Services',
+  [ServiceType.GENERAL]: 'General Services',
 };
 
 const VENDOR_CATEGORY_LABELS: Record<string, string> = {
@@ -781,6 +785,14 @@ export class ServiceRequestsNotifier {
         request.details as PaintingCleaningDetails | HomeServicesDetails,
       );
     }
+    if (
+      request.serviceType === ServiceType.IT ||
+      request.serviceType === ServiceType.GENERAL
+    ) {
+      return this.buildSimpleServiceHtml(
+        request.details as ItServicesDetails | GeneralServicesDetails,
+      );
+    }
     if (request.serviceType === ServiceType.EVENT_MANAGEMENT) {
       return this.buildEventManagementHtml(
         request.details as EventManagementDetails,
@@ -912,6 +924,47 @@ export class ServiceRequestsNotifier {
       </table>
       ${locHtml ? '<h3 style="margin:20px 0 8px; font-size:14px; text-transform:uppercase; letter-spacing:0.5px; color:#6b7280;">Location</h3>' : ''}
       ${locHtml}
+      ${notesHtml}
+    `;
+  }
+
+  private buildSimpleServiceHtml(
+    d: ItServicesDetails | GeneralServicesDetails,
+  ): string {
+    const subTypeLabel: Record<string, string> = {
+      web_design: 'Web design',
+      server_tech: 'Server tech',
+      networking: 'Networking / Wi-Fi',
+      software_installation: 'Software installation',
+      cctv_setup: 'CCTV setup',
+      printer_setup: 'Printer setup',
+      handyman: 'Handyman',
+      errands: 'Errands & assistance',
+      furniture_assembly: 'Furniture assembly',
+      other: 'Other general help',
+    };
+
+    const metaRows: Array<[string, string]> = [
+      ['Service', subTypeLabel[d.subType] ?? d.subType],
+    ];
+
+    const notesHtml = d.notes
+      ? `<div style="margin-top:12px; padding:10px 12px; border:1px solid #eee; background:#fafafa; border-radius:6px;">
+          <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#6b7280; margin-bottom:4px;">Customer notes</div>
+          <div style="white-space:pre-wrap;">${escapeHtmlForEmail(d.notes)}</div>
+        </div>`
+      : '';
+
+    return `
+      <h3 style="margin:20px 0 8px; font-size:14px; text-transform:uppercase; letter-spacing:0.5px; color:#6b7280;">Service details</h3>
+      <table cellpadding="6" cellspacing="0" style="border-collapse:collapse; width:100%;">
+        ${metaRows
+          .map(
+            ([k, v]) =>
+              `<tr><td style="border:1px solid #eee; width:160px;"><b>${escapeHtmlForEmail(k)}</b></td><td style="border:1px solid #eee;">${escapeHtmlForEmail(v)}</td></tr>`,
+          )
+          .join('')}
+      </table>
       ${notesHtml}
     `;
   }
@@ -1095,6 +1148,15 @@ export class ServiceRequestsNotifier {
         lines.push(`  Map: ${this.mapLinkFor(pc.location)}`);
       }
       if (pc.notes) lines.push(``, `Customer notes:`, pc.notes);
+    } else if (
+      (request.serviceType === ServiceType.IT ||
+        request.serviceType === ServiceType.GENERAL) &&
+      d
+    ) {
+      const simple = d as ItServicesDetails | GeneralServicesDetails;
+      lines.push(``, `-- Service details --`);
+      lines.push(`Service: ${simple.subType}`);
+      if (simple.notes) lines.push(``, `Customer notes:`, simple.notes);
     } else if (request.serviceType === ServiceType.EVENT_MANAGEMENT && d) {
       const em = d as EventManagementDetails;
       lines.push(``, `-- Event details --`);

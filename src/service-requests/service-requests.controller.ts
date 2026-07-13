@@ -20,6 +20,8 @@ import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { CreatePackersMoversDto } from './dto/create-packers-movers.dto';
 import { CreatePaintingCleaningDto } from './dto/create-painting-cleaning.dto';
 import { CreateHomeServicesDto } from './dto/create-home-services.dto';
+import { CreateItServicesDto } from './dto/create-it-services.dto';
+import { CreateGeneralServicesDto } from './dto/create-general-services.dto';
 import { CreateEventManagementDto } from './dto/create-event-management.dto';
 import { TripEstimateQueryDto } from './dto/trip-estimate.query.dto';
 import { SubmitServiceRequestFeedbackDto } from './dto/submit-service-request-feedback.dto';
@@ -75,6 +77,30 @@ export class ServiceRequestsController {
   ) {
     const userId = req.user?.userId ?? null;
     return this.service.createHomeServices(dto, userId);
+  }
+
+  @UseGuards(OptionalJwtAuthGuard)
+  @Throttle({ default: { limit: 5, ttl: 900_000 } })
+  @Post('it-services')
+  @HttpCode(HttpStatus.CREATED)
+  async submitItServices(
+    @Req() req: RequestWithUser,
+    @Body() dto: CreateItServicesDto,
+  ) {
+    const userId = req.user?.userId ?? null;
+    return this.service.createItServices(dto, userId);
+  }
+
+  @UseGuards(OptionalJwtAuthGuard)
+  @Throttle({ default: { limit: 5, ttl: 900_000 } })
+  @Post('general-services')
+  @HttpCode(HttpStatus.CREATED)
+  async submitGeneralServices(
+    @Req() req: RequestWithUser,
+    @Body() dto: CreateGeneralServicesDto,
+  ) {
+    const userId = req.user?.userId ?? null;
+    return this.service.createGeneralServices(dto, userId);
   }
 
   @UseGuards(OptionalJwtAuthGuard)

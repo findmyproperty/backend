@@ -12,6 +12,8 @@ export enum ServiceType {
   PAINTING_CLEANING = 'painting_cleaning',
   HOME_SERVICES = 'home_services',
   EVENT_MANAGEMENT = 'event_management',
+  IT = 'it',
+  GENERAL = 'general',
 }
 
 /** Avoid MySQL ENUM for status (reserved word issues with `new`); mirror LeadStatus pattern. */
@@ -78,6 +80,16 @@ export interface HomeServicesDetails {
   notes?: string | null;
 }
 
+export interface ItServicesDetails {
+  subType: string;
+  notes?: string | null;
+}
+
+export interface GeneralServicesDetails {
+  subType: string;
+  notes?: string | null;
+}
+
 export interface EventManagementDetails {
   eventType: string; // dynamic from categories mapped to 'event_management'
   venueType: 'home' | 'banquet' | 'hotel' | 'outdoor' | 'office' | 'other';
@@ -101,6 +113,8 @@ export type ServiceRequestDetails =
   | PackersMoversDetails
   | PaintingCleaningDetails
   | HomeServicesDetails
+  | ItServicesDetails
+  | GeneralServicesDetails
   | EventManagementDetails;
 
 @Entity('service_requests')

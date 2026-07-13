@@ -17,6 +17,8 @@ import { BaseServiceRequestDto } from './dto/base-service-request.dto';
 import { CreatePackersMoversDto } from './dto/create-packers-movers.dto';
 import { CreatePaintingCleaningDto } from './dto/create-painting-cleaning.dto';
 import { CreateHomeServicesDto } from './dto/create-home-services.dto';
+import { CreateItServicesDto } from './dto/create-it-services.dto';
+import { CreateGeneralServicesDto } from './dto/create-general-services.dto';
 import { CreateEventManagementDto } from './dto/create-event-management.dto';
 import { UpdateServiceRequestDto } from './dto/update-service-request.dto';
 import { SubmitServiceRequestFeedbackDto } from './dto/submit-service-request-feedback.dto';
@@ -100,6 +102,20 @@ export class ServiceRequestsService {
     userId: number | null,
   ): Promise<ServiceRequestResponse> {
     return this.create(ServiceType.HOME_SERVICES, dto, dto.details, userId);
+  }
+
+  async createItServices(
+    dto: CreateItServicesDto,
+    userId: number | null,
+  ): Promise<ServiceRequestResponse> {
+    return this.create(ServiceType.IT, dto, dto.details, userId);
+  }
+
+  async createGeneralServices(
+    dto: CreateGeneralServicesDto,
+    userId: number | null,
+  ): Promise<ServiceRequestResponse> {
+    return this.create(ServiceType.GENERAL, dto, dto.details, userId);
   }
 
   async createEventManagement(
@@ -299,6 +315,8 @@ export class ServiceRequestsService {
       [ServiceType.PAINTING_CLEANING]: this.emptyStatusMap(),
       [ServiceType.HOME_SERVICES]: this.emptyStatusMap(),
       [ServiceType.EVENT_MANAGEMENT]: this.emptyStatusMap(),
+      [ServiceType.IT]: this.emptyStatusMap(),
+      [ServiceType.GENERAL]: this.emptyStatusMap(),
     } as Record<ServiceType, Record<ServiceRequestStatus, number>>;
 
     const totals: Record<ServiceType, number> = {
@@ -306,6 +324,8 @@ export class ServiceRequestsService {
       [ServiceType.PAINTING_CLEANING]: 0,
       [ServiceType.HOME_SERVICES]: 0,
       [ServiceType.EVENT_MANAGEMENT]: 0,
+      [ServiceType.IT]: 0,
+      [ServiceType.GENERAL]: 0,
     };
     let openTotal = 0;
 
