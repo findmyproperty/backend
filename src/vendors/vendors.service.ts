@@ -21,6 +21,7 @@ import { UsersService } from '../users/users.service';
 import { VendorLead, VendorLeadStatus } from '../vendor-leads/entities/vendor-lead.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
+import { VendorsNotifier } from './vendors.notifier';
 
 export interface PublicVendorProfileResponse {
   userId: number;
@@ -96,6 +97,7 @@ export class VendorsService {
     private readonly categoryRepo: Repository<Category>,
     private readonly usersService: UsersService,
     private readonly notifications: NotificationsService,
+    private readonly vendorsNotifier: VendorsNotifier,
   ) {}
 
   async ensureProfileForUser(userId: number): Promise<VendorProfile> {
@@ -129,6 +131,8 @@ export class VendorsService {
       throw new ForbiddenException('Not a vendor account');
     }
     const profile = await this.ensureProfileForUser(userId);
+    const prevStatus = profile.verificationStatus;
+    const prevHadKyc = this.hasKycPayload(profile);
     if (dto.businessName !== undefined) profile.businessName = dto.businessName;
     if (dto.categoryIds !== undefined) profile.categoryIds = dto.categoryIds;
     if (dto.documents !== undefined) profile.documents = dto.documents;
@@ -153,7 +157,22 @@ export class VendorsService {
       profile.rejectionReason = null;
     }
     const saved = await this.profileRepo.save(profile);
+    const nowHasKyc = this.hasKycPayload(saved);
+    if (
+      saved.verificationStatus === VendorVerificationStatus.PENDING &&
+      (prevStatus === VendorVerificationStatus.REJECTED ||
+        (!prevHadKyc && nowHasKyc))
+    ) {
+      this.vendorsNotifier.notifyAdminsOfKycPending(saved, user);
+    }
     return await this.mapProfile(saved, user);
+  }
+
+  private hasKycPayload(profile: VendorProfile): boolean {
+    return (
+      Boolean(profile.businessName?.trim()) &&
+      (profile.categoryIds?.length ?? 0) > 0
+    );
   }
 
   async getPublicProfile(idOrSlug: string): Promise<PublicVendorProfileResponse> {

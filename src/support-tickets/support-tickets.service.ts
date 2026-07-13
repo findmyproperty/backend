@@ -11,6 +11,7 @@ import { ListSupportTicketsQueryDto } from './dto/list-support-tickets.query.dto
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
 import { UsersService } from '../users/users.service';
+import { SupportTicketsNotifier } from './support-tickets.notifier';
 export interface SupportTicketResponse {
   id: number;
   userId: number;
@@ -32,6 +33,7 @@ export class SupportTicketsService {
     private readonly repo: Repository<SupportTicket>,
     private readonly notifications: NotificationsService,
     private readonly usersService: UsersService,
+    private readonly supportTicketsNotifier: SupportTicketsNotifier,
   ) {}
 
   async create(
@@ -49,6 +51,7 @@ export class SupportTicketsService {
     });
     const saved = await this.repo.save(row);
     const admins = await this.usersService.findAllAdmins();
+    const submitter = await this.usersService.findOne(userId);
     for (const admin of admins) {
       await this.notifications.create({
         userId: admin.id,
@@ -58,6 +61,11 @@ export class SupportTicketsService {
         metadata: { ticketId: saved.id, fromUserId: userId },
       });
     }
+    this.supportTicketsNotifier.notifyAdminsOfNewTicket(saved, {
+      name: submitter.name,
+      phone: submitter.phone,
+      role,
+    });
     return this.map(saved);
   }
 

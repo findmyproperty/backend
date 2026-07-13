@@ -25,6 +25,7 @@ import {
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
 import { TelephonyService } from '../telephony/telephony.service';
+import { VendorLeadsNotifier } from './vendor-leads.notifier';
 
 export interface VendorLeadUpdateResponse {
   id: number;
@@ -53,6 +54,7 @@ export interface VendorLeadResponse {
   settlement?: JobSettlementInitResponse;
   contactAvailable?: boolean;
   contactPhone?: string | null;
+  maskedCallingEnabled?: boolean;
   adminApprovedAt?: Date | null;
   adminApprovedByUserId?: number | null;
   adminApprovalNotes?: string | null;
@@ -75,6 +77,7 @@ export class VendorLeadsService {
     private readonly usersService: UsersService,
     private readonly notifications: NotificationsService,
     private readonly telephonyService: TelephonyService,
+    private readonly vendorLeadsNotifier: VendorLeadsNotifier,
   ) {}
 
   private async notifyLead(
@@ -113,7 +116,7 @@ export class VendorLeadsService {
       where: { vendorUserId },
       order: { updatedAt: 'DESC' },
     });
-    return rows.map((r) => this.mapLeadForVendor(r));
+    return Promise.all(rows.map((r) => this.mapLeadForVendor(r)));
   }
 
   async findOneForVendor(
@@ -126,7 +129,7 @@ export class VendorLeadsService {
       order: { createdAt: 'ASC' },
     });
     return {
-      ...this.mapLeadForVendor(lead),
+      ...(await this.mapLeadForVendor(lead)),
       updates: updates.map((u) => this.mapUpdate(u)),
     };
   }
@@ -190,7 +193,63 @@ export class VendorLeadsService {
         { leadId: saved.id, status: saved.status },
       );
     }
+
+    if (
+      saved.status === VendorLeadStatus.ACCEPTED &&
+      prev !== VendorLeadStatus.ACCEPTED
+    ) {
+      await this.provisionLeadMaskedContact(saved);
+    }
+
+    if (
+      saved.status === VendorLeadStatus.COMPLETED ||
+      saved.status === VendorLeadStatus.REJECTED
+    ) {
+      await this.telephonyService.releaseMaskedPair(saved.id);
+    }
+
     return this.mapLeadForVendor(saved);
+  }
+
+  async callCustomerForVendor(
+    leadId: number,
+    vendorUserId: number,
+  ): Promise<{ callSid: string; virtualNumber: string; message: string }> {
+    const lead = await this.getOwnedLead(leadId, vendorUserId);
+    if (!this.isContactAvailable(lead)) {
+      throw new BadRequestException(
+        'Customer contact is not available for this lead yet',
+      );
+    }
+
+    const vendor = await this.usersService.findOne(vendorUserId);
+    const vendorPhone = vendor.phone?.trim();
+    if (!vendorPhone) {
+      throw new BadRequestException(
+        'Add a phone number to your profile before calling customers',
+      );
+    }
+
+    await this.provisionLeadMaskedContact(lead);
+    return this.telephonyService.initiateMaskedCall(
+      lead.id,
+      vendorPhone,
+      lead.phone,
+    );
+  }
+
+  private async provisionLeadMaskedContact(lead: VendorLead): Promise<void> {
+    if (!this.telephonyService.isEnabled()) return;
+
+    const vendor = await this.usersService.findOne(lead.vendorUserId);
+    const vendorPhone = vendor.phone?.trim();
+    if (!vendorPhone) return;
+
+    await this.telephonyService.provisionMaskedPair(
+      lead.id,
+      lead.phone,
+      vendorPhone,
+    );
   }
 
   async addUpdate(
@@ -372,6 +431,7 @@ export class VendorLeadsService {
       `Customer: ${saved.customerName}${saved.area ? ` · ${saved.area}` : ''}. You will be able to accept or reject after admin approval.`,
       { leadId: saved.id },
     );
+    await this.notifyAdminsOfPendingLead(saved);
     return this.mapLeadForAdmin(saved);
   }
 
@@ -396,6 +456,13 @@ export class VendorLeadsService {
     }
     const saved = await this.leadRepo.save(lead);
     await this.syncServiceRequestStatus(saved);
+
+    if (
+      saved.status === VendorLeadStatus.COMPLETED ||
+      saved.status === VendorLeadStatus.REJECTED
+    ) {
+      await this.telephonyService.releaseMaskedPair(saved.id);
+    }
 
     let settlement: JobSettlementInitResponse | undefined;
     if (
@@ -519,7 +586,20 @@ export class VendorLeadsService {
       `Customer: ${saved.customerName}. You can accept or reject after admin approves this lead.`,
       { leadId: saved.id, serviceRequestId },
     );
+    await this.notifyAdminsOfPendingLead(saved);
     return this.mapLeadForAdmin(saved);
+  }
+
+  private async notifyAdminsOfPendingLead(lead: VendorLead): Promise<void> {
+    const profile = await this.vendorsService.ensureProfileForUser(
+      lead.vendorUserId,
+    );
+    const vendor = await this.usersService.findOne(lead.vendorUserId);
+    const vendorLabel =
+      profile.businessName?.trim() ||
+      vendor.name?.trim() ||
+      `Vendor #${lead.vendorUserId}`;
+    this.vendorLeadsNotifier.notifyAdminsOfPendingApproval(lead, vendorLabel);
   }
 
   private async getOwnedLead(
@@ -606,8 +686,14 @@ export class VendorLeadsService {
     };
   }
 
-  private mapLeadForVendor(lead: VendorLead): VendorLeadResponse {
+  private async mapLeadForVendor(lead: VendorLead): Promise<VendorLeadResponse> {
     const contactAvailable = this.isContactAvailable(lead);
+    const maskedCallingEnabled =
+      contactAvailable && this.telephonyService.isEnabled();
+    const contactPhone = maskedCallingEnabled
+      ? await this.telephonyService.getVirtualNumberForLead(lead.id)
+      : null;
+
     return {
       id: lead.id,
       vendorUserId: lead.vendorUserId,
@@ -623,7 +709,8 @@ export class VendorLeadsService {
       createdAt: lead.createdAt,
       updatedAt: lead.updatedAt,
       contactAvailable,
-      contactPhone: null,
+      contactPhone,
+      maskedCallingEnabled,
     };
   }
 

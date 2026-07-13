@@ -45,6 +45,7 @@ import { MailModule } from './mail/mail.module';
 import { EmailLog } from './mail/entities/email-log.entity';
 import { Category } from './categories/entities/category.entity';
 import { CategoryServiceMapping } from './categories/entities/category-service-mapping.entity';
+import { VendorLeadMaskedContact } from './telephony/entities/vendor-lead-masked-contact.entity';
 import { CategoriesModule } from './categories/categories.module';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -106,6 +107,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
             EmailLog,
             Category,
             CategoryServiceMapping,
+            VendorLeadMaskedContact,
           ],
           // synchronize: true,
         };

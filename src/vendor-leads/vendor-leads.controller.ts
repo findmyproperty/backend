@@ -59,6 +59,18 @@ export class VendorLeadsController {
     return this.service.patchForVendor(id, userId, dto);
   }
 
+  @Post(':id/call-customer')
+  async callCustomer(
+    @Req() req: RequestWithUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    const userId = req.user?.userId;
+    if (!userId || req.user?.role !== 'vendor') {
+      throw new ForbiddenException('Only vendors');
+    }
+    return this.service.callCustomerForVendor(id, userId);
+  }
+
   @Post(':id/updates')
   async addUpdate(
     @Req() req: RequestWithUser,

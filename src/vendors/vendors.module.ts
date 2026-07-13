@@ -4,6 +4,7 @@ import { VendorProfile } from './entities/vendor-profile.entity';
 import { VendorsService } from './vendors.service';
 import { VendorsController } from './vendors.controller';
 import { VendorsAdminController } from './vendors.admin.controller';
+import { VendorsNotifier } from './vendors.notifier';
 import { UsersModule } from '../users/users.module';
 import { User } from '../users/entities/user.entity';
 import { VendorLead } from '../vendor-leads/entities/vendor-lead.entity';
@@ -25,7 +26,7 @@ import { ServiceRequest } from '../service-requests/entities/service-request.ent
     UsersModule,
   ],
   controllers: [VendorsController, VendorsAdminController, VendorsPublicController],
-  providers: [VendorsService],
+  providers: [VendorsService, VendorsNotifier],
   exports: [VendorsService],
 })
 export class VendorsModule {}

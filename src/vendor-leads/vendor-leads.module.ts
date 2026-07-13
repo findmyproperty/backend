@@ -6,6 +6,7 @@ import { ServiceRequest } from '../service-requests/entities/service-request.ent
 import { VendorLeadsService } from './vendor-leads.service';
 import { VendorLeadsController } from './vendor-leads.controller';
 import { VendorLeadsAdminController } from './vendor-leads.admin.controller';
+import { VendorLeadsNotifier } from './vendor-leads.notifier';
 import { VendorsModule } from '../vendors/vendors.module';
 import { VendorWalletModule } from '../vendor-wallet/vendor-wallet.module';
 import { UsersModule } from '../users/users.module';
@@ -24,7 +25,7 @@ import { TelephonyModule } from '../telephony/telephony.module';
     TelephonyModule,
   ],
   controllers: [VendorLeadsController, VendorLeadsAdminController],
-  providers: [VendorLeadsService],
+  providers: [VendorLeadsService, VendorLeadsNotifier],
   exports: [VendorLeadsService],
 })
 export class VendorLeadsModule {}
