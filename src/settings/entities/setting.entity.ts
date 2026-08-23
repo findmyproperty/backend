@@ -16,23 +16,23 @@ import {
 @Entity('settings')
 export class Setting {
   @PrimaryGeneratedColumn()
-  id: number;
+  id!: number;
 
   @Column({
     name: 'site_name',
     type: 'varchar',
     length: 255,
-    default: 'Find My Property',
+    default: 'The YBDC',
   })
-  siteName: string;
+  siteName!: string;
 
   @Column({
     name: 'support_email',
     type: 'varchar',
     length: 255,
-    default: 'support@example.com',
+    default: 'support@the-ybdc.com',
   })
-  supportEmail: string;
+  supportEmail!: string;
 
   @Column({
     name: 'support_phone',
@@ -40,31 +40,31 @@ export class Setting {
     length: 30,
     nullable: true,
   })
-  supportPhone: string | null;
+  supportPhone!: string | null;
 
   @Column({ name: 'auto_approve_listings', type: 'boolean', default: false })
-  autoApproveListings: boolean;
+  autoApproveListings!: boolean;
 
   @Column({ name: 'new_agent_registration', type: 'boolean', default: true })
-  newAgentRegistration: boolean;
+  newAgentRegistration!: boolean;
 
   @Column({ type: 'varchar', length: 50, default: 'modern-blue' })
-  theme: string;
+  theme!: string;
 
   @Column({ name: 'primary_logo_url', type: 'text', nullable: true })
-  primaryLogoUrl: string | null;
+  primaryLogoUrl!: string | null;
 
   @Column({ name: 'favicon_url', type: 'text', nullable: true })
-  faviconUrl: string | null;
+  faviconUrl!: string | null;
 
   @Column({ name: 'cloudinary_api_key', type: 'text', nullable: true })
-  cloudinaryApiKey: string | null;
+  cloudinaryApiKey!: string | null;
 
   @Column({ name: 'google_maps_key', type: 'text', nullable: true })
-  googleMapsKey: string | null;
+  googleMapsKey!: string | null;
 
   @Column({ name: 'two_factor_auth_enforced', type: 'boolean', default: true })
-  twoFactorAuthEnforced: boolean;
+  twoFactorAuthEnforced!: boolean;
 
   @Column({
     name: 'vendor_commission_percent',
@@ -73,8 +73,17 @@ export class Setting {
     scale: 2,
     default: 10,
   })
-  vendorCommissionPercent: number;
+  vendorCommissionPercent!: number;
+
+  @Column({ name: 'landing_reaction_count', type: 'int', default: 3 })
+  landingReactionCount!: number;
+
+  @Column({ name: 'landing_reaction_ids', type: 'json', nullable: true })
+  landingReactionIds!: number[] | null;
+
+  @Column({ name: 'faqs', type: 'json', nullable: true })
+  faqs!: Array<{ id: string; question: string; answer: string }> | null;
 
   @UpdateDateColumn({ name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

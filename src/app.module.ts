@@ -109,7 +109,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
             CategoryServiceMapping,
             VendorLeadMaskedContact,
           ],
-          // synchronize: true,
+          synchronize: true,
         };
       },
     }),

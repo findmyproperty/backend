@@ -42,6 +42,12 @@ export class ServiceRequestsController {
     private readonly distance: DistanceService,
   ) {}
 
+  @Get('reactions')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  async getCustomerReactions() {
+    return this.service.getCustomerReactions();
+  }
+
   /** Public + optional auth. If logged in, request is auto-linked to the user. */
   @UseGuards(OptionalJwtAuthGuard)
   @Throttle({ default: { limit: 5, ttl: 900_000 } })

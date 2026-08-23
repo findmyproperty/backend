@@ -51,6 +51,13 @@ export class ServiceRequestsAdminController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get('reactions')
+  async reactions(@Req() req: RequestWithUser) {
+    assertAdmin(req);
+    return this.service.adminCustomerReactions();
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(':id')
   async findOne(
     @Req() req: RequestWithUser,

@@ -11,6 +11,7 @@ import { ServiceRequestsNotifier } from './service-requests.notifier';
 import { DistanceService } from './distance.service';
 import { VendorLeadsModule } from '../vendor-leads/vendor-leads.module';
 import { VendorsModule } from '../vendors/vendors.module';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { VendorsModule } from '../vendors/vendors.module';
     UsersModule,
     VendorLeadsModule,
     VendorsModule,
+    SettingsModule,
   ],
   controllers: [ServiceRequestsController, ServiceRequestsAdminController],
   providers: [ServiceRequestsService, ServiceRequestsNotifier, DistanceService],

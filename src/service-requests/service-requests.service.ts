@@ -27,6 +27,26 @@ import { ServiceRequestsNotifier } from './service-requests.notifier';
 import { DistanceService } from './distance.service';
 import { VendorLeadsService } from '../vendor-leads/vendor-leads.service';
 import { VendorsService } from '../vendors/vendors.service';
+import { SettingsService } from '../settings/settings.service';
+
+export interface CustomerReactionResponse {
+  id: number;
+  /** First name only — used on the public landing page. */
+  name: string;
+  /** Full customer name — included in admin responses. */
+  fullName: string;
+  /** Human-readable service label e.g. "Packers & Movers". */
+  service: string;
+  /** Raw service type enum value e.g. "packers_movers". */
+  serviceType: string;
+  /** Vendor profile ID (vendor_profiles.id) — null if unassigned. */
+  vendorId: number | null;
+  /** Vendor business name — null if unassigned or not set. */
+  vendorName: string | null;
+  rating: number;
+  feedback: string | null;
+  reviewedAt: Date;
+}
 
 export interface ServiceRequestResponse {
   id: number;
@@ -68,7 +88,114 @@ export class ServiceRequestsService {
     private readonly distance: DistanceService,
     private readonly vendorLeadsService: VendorLeadsService,
     private readonly vendorsService: VendorsService,
+    private readonly settingsService: SettingsService,
   ) {}
+
+  async getCustomerReactions(): Promise<CustomerReactionResponse[]> {
+    const settings = await this.settingsService.getSettings();
+    const selectedIds = Array.isArray(settings.landingReactionIds)
+      ? settings.landingReactionIds.filter((id) => Number.isInteger(Number(id)))
+      : [];
+    if (selectedIds.length === 0) return [];
+
+    return this.mapCustomerReactions(
+      await this.repo
+      .createQueryBuilder('sr')
+      .select([
+        'sr.id AS id',
+        'sr.name AS name',
+        'sr.serviceType AS serviceType',
+        'sr.customerRating AS rating',
+        'sr.customerFeedback AS feedback',
+        'sr.customerReviewedAt AS reviewedAt',
+      ])
+      .where('sr.status = :status', { status: ServiceRequestStatus.COMPLETED })
+      .andWhere('sr.customerRating IS NOT NULL')
+      .andWhere('sr.customerReviewedAt IS NOT NULL')
+      .andWhere('sr.id IN (:...selectedIds)', { selectedIds })
+      .orderBy('sr.customerRating', 'DESC')
+      .addOrderBy('sr.customerReviewedAt', 'DESC')
+      .getRawMany<{
+        id: number | string;
+        name: string;
+        serviceType: ServiceType;
+        rating: number | string;
+        feedback: string | null;
+        reviewedAt: Date;
+      }>(),
+    );
+  }
+
+  async adminCustomerReactions(): Promise<CustomerReactionResponse[]> {
+    return this.mapCustomerReactions(
+      await this.repo
+        .createQueryBuilder('sr')
+        .select([
+          'sr.id AS id',
+          'sr.name AS name',
+          'sr.serviceType AS serviceType',
+          'sr.customerRating AS rating',
+          'sr.customerFeedback AS feedback',
+          'sr.customerReviewedAt AS reviewedAt',
+          'vp.id AS vendorId',
+          'vp.businessName AS vendorName',
+        ])
+        .leftJoin('vendor_profiles', 'vp', 'vp.userId = sr.assignedVendorUserId')
+        .where('sr.status = :status', { status: ServiceRequestStatus.COMPLETED })
+        .andWhere('sr.customerRating IS NOT NULL')
+        .andWhere('sr.customerReviewedAt IS NOT NULL')
+        .orderBy('sr.customerRating', 'DESC')
+        .addOrderBy('sr.customerReviewedAt', 'DESC')
+        .getRawMany<{
+          id: number | string;
+          name: string;
+          serviceType: ServiceType;
+          rating: number | string;
+          feedback: string | null;
+          reviewedAt: Date;
+          vendorId: number | string | null;
+          vendorName: string | null;
+        }>(),
+    );
+  }
+
+
+  private mapCustomerReactions(
+    rows: Array<{
+      id: number | string;
+      name: string;
+      serviceType: ServiceType;
+      rating: number | string;
+      feedback: string | null;
+      reviewedAt: Date;
+      vendorId?: number | string | null;
+      vendorName?: string | null;
+    }>,
+  ): CustomerReactionResponse[] {
+
+    const serviceLabels: Record<ServiceType, string> = {
+      [ServiceType.PACKERS_MOVERS]: 'Packers & Movers',
+      [ServiceType.PAINTING_CLEANING]: 'Painting & Cleaning',
+      [ServiceType.HOME_SERVICES]: 'Home Services',
+      [ServiceType.EVENT_MANAGEMENT]: 'Event Management',
+      [ServiceType.IT]: 'IT Services',
+      [ServiceType.GENERAL]: 'General Services',
+    };
+
+    return rows.map((row) => ({
+      id: Number(row.id),
+      name: row.name.trim().split(/\s+/)[0] || 'Customer',
+      fullName: row.name.trim() || 'Customer',
+      service: serviceLabels[row.serviceType] ?? 'Service support',
+      serviceType: row.serviceType,
+      vendorId: row.vendorId != null ? Number(row.vendorId) : null,
+      vendorName: row.vendorName?.trim() || null,
+      rating: Math.min(5, Math.max(1, Number(row.rating))),
+      feedback: row.feedback?.trim() || null,
+      reviewedAt: row.reviewedAt,
+    }));
+  }
+
 
   async createPackersMovers(
     dto: CreatePackersMoversDto,

@@ -5,13 +5,17 @@ import {
   IsEmail,
   IsUrl,
   Matches,
+  Max,
   MaxLength,
   IsIn,
   ValidateIf,
   IsNumber,
+  IsArray,
+  IsInt,
   Min,
+  ValidateNested,
 } from 'class-validator';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 
 /** Treat `""` and whitespace as null so "clear field" flows don't trip validators. */
 const emptyStringToNull = ({ value }: { value: unknown }) =>
@@ -91,4 +95,32 @@ export class CreateSettingDto {
   @IsNumber()
   @Min(0)
   vendorCommissionPercent?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(12)
+  landingReactionCount?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  landingReactionIds?: number[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => FaqItemDto)
+  faqs?: FaqItemDto[];
+}
+
+export class FaqItemDto {
+  @IsString()
+  id!: string;
+
+  @IsString()
+  question!: string;
+
+  @IsString()
+  answer!: string;
 }
