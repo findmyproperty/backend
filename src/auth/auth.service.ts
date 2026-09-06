@@ -56,7 +56,7 @@ export class AuthService {
     const normalizedPhone = this.normalizePhone(phone);
     if (!normalizedPhone) {
       throw new BadRequestException(
-        'Phone number must be in E.164 format, e.g. +919876543210.',
+        'Phone number must be in E.164 format.',
       );
     }
 
@@ -123,7 +123,7 @@ export class AuthService {
     const normalizedPhone = this.normalizePhone(body.phone);
     if (!normalizedPhone) {
       throw new BadRequestException(
-        'Phone number must be in E.164 format, e.g. +919876543210.',
+        'Phone number must be in E.164 format.',
       );
     }
 

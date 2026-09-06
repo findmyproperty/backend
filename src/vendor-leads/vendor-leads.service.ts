@@ -21,11 +21,13 @@ import { UserRole } from '../users/entities/user.entity';
 import {
   ServiceRequest,
   ServiceRequestStatus,
+  ServiceType,
 } from '../service-requests/entities/service-request.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
 import { TelephonyService } from '../telephony/telephony.service';
 import { VendorLeadsNotifier } from './vendor-leads.notifier';
+import { CategoriesService } from '../categories/categories.service';
 
 export interface VendorLeadUpdateResponse {
   id: number;
@@ -78,6 +80,7 @@ export class VendorLeadsService {
     private readonly notifications: NotificationsService,
     private readonly telephonyService: TelephonyService,
     private readonly vendorLeadsNotifier: VendorLeadsNotifier,
+    private readonly categoriesService: CategoriesService,
   ) {}
 
   private async notifyLead(
@@ -410,7 +413,14 @@ export class VendorLeadsService {
     if (vendor.role !== UserRole.VENDOR) {
       throw new BadRequestException('User is not a vendor');
     }
-    const commissionPercent = await this.walletService.getCommissionPercent();
+    let linkedRequest: ServiceRequest | null = null;
+    if (dto.serviceRequestId != null) {
+      linkedRequest = await this.serviceRequestRepo.findOneBy({
+        id: dto.serviceRequestId,
+      });
+    }
+    const commissionPercent =
+      await this.resolveCommissionPercent(linkedRequest);
     const lead = this.leadRepo.create({
       vendorUserId: dto.vendorUserId,
       serviceRequestId: dto.serviceRequestId ?? null,
@@ -560,7 +570,7 @@ export class VendorLeadsService {
     if (existing) {
       return this.mapLeadForAdmin(existing);
     }
-    const commissionPercent = await this.walletService.getCommissionPercent();
+    const commissionPercent = await this.resolveCommissionPercent(sr);
     const requirement =
       sr.details && typeof sr.details === 'object'
         ? JSON.stringify(sr.details).slice(0, 4000)
@@ -600,6 +610,52 @@ export class VendorLeadsService {
       vendor.name?.trim() ||
       `Vendor #${lead.vendorUserId}`;
     this.vendorLeadsNotifier.notifyAdminsOfPendingApproval(lead, vendorLabel);
+  }
+
+  /** Snapshot commission from the SR subtype's mapped category; else 0. */
+  private async resolveCommissionPercent(
+    serviceRequest: ServiceRequest | null | undefined,
+  ): Promise<number> {
+    if (!serviceRequest) return 0;
+
+    const subtype = this.extractSubtypeFromServiceRequest(serviceRequest);
+    if (!subtype) return 0;
+
+    const category = await this.categoriesService.findByServiceAndSubtype(
+      serviceRequest.serviceType,
+      subtype,
+    );
+    if (!category) return 0;
+
+    const pct = Number(category.commissionPercent);
+    return Number.isFinite(pct) && pct >= 0 ? pct : 0;
+  }
+
+  private extractSubtypeFromServiceRequest(
+    serviceRequest: ServiceRequest,
+  ): string | null {
+    const details = serviceRequest.details;
+    if (!details || typeof details !== 'object') return null;
+
+    const d = details as unknown as Record<string, unknown>;
+    const pick = (key: string): string | null => {
+      const value = d[key];
+      return typeof value === 'string' && value.trim() ? value.trim() : null;
+    };
+
+    switch (serviceRequest.serviceType) {
+      case ServiceType.PACKERS_MOVERS:
+        return pick('moveType');
+      case ServiceType.EVENT_MANAGEMENT:
+        return pick('eventType');
+      case ServiceType.PAINTING_CLEANING:
+      case ServiceType.HOME_SERVICES:
+      case ServiceType.IT:
+      case ServiceType.GENERAL:
+        return pick('subType');
+      default:
+        return pick('subType') ?? pick('moveType') ?? pick('eventType');
+    }
   }
 
   private async getOwnedLead(

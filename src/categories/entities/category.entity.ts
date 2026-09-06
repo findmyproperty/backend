@@ -33,6 +33,10 @@ export class Category {
   @Column({ default: true })
   isActive: boolean;
 
+  /** Vendor commission % snapshotted onto leads for this category. */
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
+  commissionPercent: number;
+
   @OneToMany(
     () => CategoryServiceMapping,
     (mapping) => mapping.category,

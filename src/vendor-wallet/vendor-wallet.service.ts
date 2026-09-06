@@ -159,9 +159,8 @@ export class VendorWalletService {
   ) {}
 
   async getCommissionPercent(): Promise<number> {
-    const settings = await this.settingsService.getSettings();
-    const pct = Number(settings.vendorCommissionPercent);
-    return Number.isFinite(pct) && pct >= 0 ? pct : 10;
+    // Commission is per-category; Settings field is unused for new leads.
+    return 0;
   }
 
   async initiateJobSettlement(

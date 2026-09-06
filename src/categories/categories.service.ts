@@ -4,11 +4,12 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Category } from './entities/category.entity';
 import { CategoryServiceMapping } from './entities/category-service-mapping.entity';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
+import { ServiceType } from '../service-requests/entities/service-request.entity';
 
 @Injectable()
 export class CategoriesService {
@@ -30,6 +31,7 @@ export class CategoriesService {
       const firstMapping = cat.mappings?.[0];
       return {
         ...cat,
+        commissionPercent: Number(cat.commissionPercent) || 0,
         service: firstMapping ? firstMapping.service : null,
       } as Category;
     });
@@ -46,8 +48,75 @@ export class CategoriesService {
     const firstMapping = category.mappings?.[0];
     return {
       ...category,
+      commissionPercent: Number(category.commissionPercent) || 0,
       service: firstMapping ? firstMapping.service : null,
     } as Category;
+  }
+
+  /**
+   * Match a service-request subtype (slug/name/option value) to an active
+   * category mapped to the given service type.
+   */
+  async findByServiceAndSubtype(
+    serviceType: ServiceType,
+    subtypeQuery: string,
+  ): Promise<Category | null> {
+    const q = subtypeQuery.trim().toLowerCase();
+    if (!q) return null;
+
+    const mappings = await this.mappingRepository.find({
+      where: { service: serviceType, isActive: true },
+      select: ['categoryId'],
+    });
+    if (mappings.length === 0) return null;
+
+    const categories = await this.categoryRepository.findBy({
+      id: In(mappings.map((m) => m.categoryId)),
+      isActive: true,
+    });
+    if (categories.length === 0) return null;
+
+    const normalize = (value: string) =>
+      value
+        .toLowerCase()
+        .trim()
+        .replace(/_/g, '-')
+        .replace(/[^a-z0-9-]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+
+    const qNorm = normalize(q);
+    const qUnderscore = qNorm.replace(/-/g, '_');
+
+    let matched = categories.find((c) => {
+      const slug = c.slug.toLowerCase();
+      const name = c.name.toLowerCase();
+      const slugNorm = normalize(c.slug);
+      const nameNorm = normalize(c.name);
+      return (
+        slug === q ||
+        name === q ||
+        slugNorm === qNorm ||
+        nameNorm === qNorm ||
+        slugNorm.replace(/-/g, '_') === qUnderscore ||
+        nameNorm.replace(/-/g, '_') === qUnderscore
+      );
+    });
+    if (matched) return matched;
+
+    const queryWords = qNorm.split(/[^a-z0-9]+/).filter(Boolean);
+    if (queryWords.length > 0) {
+      matched = categories.find((c) => {
+        const nameLower = c.name.toLowerCase();
+        const slugLower = c.slug.toLowerCase();
+        return queryWords.every(
+          (word) => nameLower.includes(word) || slugLower.includes(word),
+        );
+      });
+      if (matched) return matched;
+    }
+
+    return null;
   }
 
   async create(dto: CreateCategoryDto): Promise<Category> {
@@ -63,6 +132,11 @@ export class CategoriesService {
       slug,
       description: dto.description?.trim() ?? null,
       isActive: dto.isActive ?? true,
+      commissionPercent:
+        dto.commissionPercent !== undefined &&
+        Number.isFinite(Number(dto.commissionPercent))
+          ? Number(dto.commissionPercent)
+          : 0,
     });
 
     const savedCategory = await this.categoryRepository.save(category);
@@ -106,6 +180,10 @@ export class CategoriesService {
 
     if (dto.isActive !== undefined) {
       category.isActive = dto.isActive;
+    }
+
+    if (dto.commissionPercent !== undefined) {
+      category.commissionPercent = Number(dto.commissionPercent);
     }
 
     await this.categoryRepository.save(category);

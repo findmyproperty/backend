@@ -11,6 +11,7 @@ import { VendorsModule } from '../vendors/vendors.module';
 import { VendorWalletModule } from '../vendor-wallet/vendor-wallet.module';
 import { UsersModule } from '../users/users.module';
 import { TelephonyModule } from '../telephony/telephony.module';
+import { CategoriesModule } from '../categories/categories.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { TelephonyModule } from '../telephony/telephony.module';
     VendorWalletModule,
     UsersModule,
     TelephonyModule,
+    CategoriesModule,
   ],
   controllers: [VendorLeadsController, VendorLeadsAdminController],
   providers: [VendorLeadsService, VendorLeadsNotifier],
