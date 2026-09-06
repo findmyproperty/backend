@@ -210,7 +210,10 @@ export class AuthService {
 
     const effectiveRole = user.role ?? body.role ?? UserRole.TENANT;
     if (effectiveRole === UserRole.VENDOR) {
-      await this.vendorsService.ensureProfileForUser(user.id);
+      await this.vendorsService.ensureProfileForUser(user.id, {
+        businessName: body.businessName,
+        categoryIds: body.categoryIds,
+      });
     }
 
     return this.buildAuthResponse(user);

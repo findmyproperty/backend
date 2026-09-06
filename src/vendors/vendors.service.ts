@@ -100,7 +100,13 @@ export class VendorsService {
     private readonly vendorsNotifier: VendorsNotifier,
   ) {}
 
-  async ensureProfileForUser(userId: number): Promise<VendorProfile> {
+  async ensureProfileForUser(
+    userId: number,
+    seed?: {
+      businessName?: string | null;
+      categoryIds?: number[] | null;
+    },
+  ): Promise<VendorProfile> {
     let profile = await this.profileRepo.findOneBy({ userId });
     if (!profile) {
       profile = this.profileRepo.create({
@@ -108,8 +114,22 @@ export class VendorsService {
         verificationStatus: VendorVerificationStatus.PENDING,
         categoryIds: [],
       });
-      profile = await this.profileRepo.save(profile);
     }
+
+    const businessName = seed?.businessName?.trim();
+    if (businessName && !profile.businessName?.trim()) {
+      profile.businessName = businessName;
+    }
+
+    if (
+      seed?.categoryIds &&
+      seed.categoryIds.length > 0 &&
+      !(profile.categoryIds?.length)
+    ) {
+      profile.categoryIds = seed.categoryIds;
+    }
+
+    profile = await this.profileRepo.save(profile);
     return profile;
   }
 
