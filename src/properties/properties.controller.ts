@@ -45,6 +45,13 @@ export class PropertiesController {
     @Req() req: RequestWithUser,
   ) {
     const userId = req.user?.userId;
+    if (
+      req.user?.role !== UserRole.ADMIN &&
+      req.user?.role !== UserRole.TENANT &&
+      req.user?.role !== UserRole.AGENT
+    ) {
+      throw new ForbiddenException('Only tenants and agents can create listings');
+    }
     // Enforce default status
     if (req.user?.role !== 'admin') {
       createPropertyDto.status = PropertyStatus.PENDING;
@@ -122,7 +129,6 @@ export class PropertiesController {
   @UseGuards(OptionalJwtAuthGuard)
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
-    console.log('req.user?.role', req.user);
     return this.propertiesService.findOneWithAgent(id, {
       viewerRole: req.user?.role,
     });

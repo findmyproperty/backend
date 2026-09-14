@@ -17,6 +17,8 @@ import { UpdateMeDto } from './dto/update-me.dto';
 import { RequestPhoneOtpDto } from './dto/request-phone-otp.dto';
 import { VerifyPhoneOtpDto } from './dto/verify-phone-otp.dto';
 import { AdminLoginAsDto } from './dto/admin-login-as.dto';
+import { VerifyMobilePhoneOtpDto } from './dto/verify-mobile-phone-otp.dto';
+import { MobileRefreshDto } from './dto/mobile-refresh.dto';
 
 import type { Request, Response } from 'express';
 
@@ -63,6 +65,17 @@ export class AuthController {
     return { access_token: result.access_token, user: result.user };
   }
 
+  /** Native clients keep the rotating refresh token in OS secure storage. */
+  @Post('mobile/phone-otp/verify')
+  async verifyMobilePhoneOtp(@Body() body: VerifyMobilePhoneOtpDto) {
+    return this.authService.verifyMobilePhoneOtp({
+      phone: body.phone,
+      code: body.code,
+      name: body.name,
+      role: body.registrationRole,
+    });
+  }
+
   /** New access token using HTTP-only `refresh_token` cookie. */
   @Post('refresh')
   async refresh(
@@ -85,6 +98,17 @@ export class AuthController {
       this.authService.getRoleCookieOptions(),
     );
     return { access_token: result.access_token, user: result.user };
+  }
+
+  @Post('mobile/refresh')
+  async refreshMobile(@Body() body: MobileRefreshDto) {
+    return this.authService.refreshMobileWithRefreshToken(body.refresh_token);
+  }
+
+  @Post('mobile/logout')
+  async logoutMobile(@Body() body: MobileRefreshDto) {
+    await this.authService.revokeMobileRefreshToken(body.refresh_token);
+    return { message: 'Logged out' };
   }
 
   @Post('logout')

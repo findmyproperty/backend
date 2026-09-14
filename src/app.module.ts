@@ -38,6 +38,8 @@ import { AdminWalletModule } from './admin-wallet/admin-wallet.module';
 import { RazorpayWebhookEvent } from './razorpay/entities/razorpay-webhook-event.entity';
 import { PaymentsModule } from './payments/payments.module';
 import { Notification } from './notifications/entities/notification.entity';
+import { MobilePushDevice } from './notifications/entities/mobile-push-device.entity';
+import { MobileRefreshToken } from './auth/entities/mobile-refresh-token.entity';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SupportTicket } from './support-tickets/entities/support-ticket.entity';
 import { SupportTicketsModule } from './support-tickets/support-tickets.module';
@@ -103,6 +105,8 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
             AdminWalletEntry,
             RazorpayWebhookEvent,
             Notification,
+            MobilePushDevice,
+            MobileRefreshToken,
             SupportTicket,
             EmailLog,
             Category,

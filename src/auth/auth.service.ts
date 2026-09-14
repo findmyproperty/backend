@@ -6,13 +6,16 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  ForbiddenException,
   UnauthorizedException,
   forwardRef,
 } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { createHash, randomInt } from 'crypto';
+import { createHash, randomInt, randomUUID } from 'crypto';
+import { InjectRepository } from '@nestjs/typeorm';
+import { LessThan, Repository } from 'typeorm';
 import { UpdateMeDto } from './dto/update-me.dto';
 import { MailService } from '../mail/mail.service';
 import { EmailLogStatus } from '../mail/entities/email-log.entity';
@@ -23,6 +26,7 @@ import { VerifyPhoneOtpDto } from './dto/verify-phone-otp.dto';
 import twilio, { type Twilio } from 'twilio';
 import { VendorsService } from '../vendors/vendors.service';
 import { BRAND_COLOR, BRAND_ON_COLOR } from '../helper/email-theme';
+import { MobileRefreshToken } from './entities/mobile-refresh-token.entity';
 
 /** Default fixed OTP when fallback mode is enabled and OTP_FALLBACK_CODE is unset. */
 const DEFAULT_OTP_FALLBACK_CODE = '456789';
@@ -36,6 +40,7 @@ interface VerificationJwtPayload {
 interface RefreshJwtPayload {
   sub: number;
   typ: 'refresh';
+  jti?: string;
 }
 
 @Injectable()
@@ -50,6 +55,8 @@ export class AuthService {
     private readonly mail: MailService,
     @Inject(forwardRef(() => VendorsService))
     private vendorsService: VendorsService,
+    @InjectRepository(MobileRefreshToken)
+    private readonly mobileRefreshTokens: Repository<MobileRefreshToken>,
   ) {}
 
   async requestPhoneOtp(phone: string) {
@@ -188,12 +195,20 @@ export class AuthService {
       }
     }
 
+    if (body.role === UserRole.ADMIN || body.role === UserRole.AGENT) {
+      throw new ForbiddenException(
+        'Agent and admin accounts must be provisioned by an administrator.',
+      );
+    }
+
+    const registrationRole =
+      body.role === UserRole.VENDOR ? UserRole.VENDOR : UserRole.TENANT;
     let user = await this.usersService.findByPhone(normalizedPhone);
     if (!user) {
       user = await this.usersService.create({
         name: body.name?.trim() || `User ${normalizedPhone.slice(-4)}`,
         phone: normalizedPhone,
-        role: body.role || UserRole.TENANT,
+        role: registrationRole,
         isPhoneVerified: true,
         onboardingCompleted: false,
       });
@@ -202,13 +217,10 @@ export class AuthService {
         isPhoneVerified: true,
         name: body.name?.trim() || user.name || undefined,
       };
-      if (body.role && !user.role) {
-        updates.role = body.role;
-      }
       user = await this.usersService.update(user.id, updates);
     }
 
-    const effectiveRole = user.role ?? body.role ?? UserRole.TENANT;
+    const effectiveRole = user.role ?? UserRole.TENANT;
     if (effectiveRole === UserRole.VENDOR) {
       await this.vendorsService.ensureProfileForUser(user.id);
     }
@@ -219,6 +231,18 @@ export class AuthService {
   async getMe(userId: number) {
     const user = await this.usersService.findOne(userId);
     return { user: this.toPublicUser(user) };
+  }
+
+  /** Native sign-in uses SecureStore and only permits non-admin public roles. */
+  async verifyMobilePhoneOtp(body: VerifyPhoneOtpDto) {
+    const result = await this.verifyPhoneOtp(body);
+    const user = await this.usersService.findOne(result.user.id);
+    if (user.role === UserRole.ADMIN) {
+      throw new ForbiddenException(
+        'Admin accounts are not available in the mobile application.',
+      );
+    }
+    return this.buildMobileAuthResponse(user);
   }
 
   async updateMe(userId: number, body: UpdateMeDto) {
@@ -270,7 +294,6 @@ export class AuthService {
     // and assigning `undefined` would wipe the existing column value (e.g.
     // saving role-only would erase name + location).
     const patch: UpdateUserDto = { onboardingCompleted };
-    if (body.role !== undefined) patch.role = body.role;
     if (body.phone !== undefined) patch.phone = body.phone;
     if (body.latitude !== undefined) patch.latitude = body.latitude;
     if (body.longitude !== undefined) patch.longitude = body.longitude;
@@ -300,6 +323,7 @@ export class AuthService {
   }
 
   async deleteMe(userId: number) {
+    await this.mobileRefreshTokens.delete({ userId });
     await this.usersService.remove(userId);
     return { message: 'Account deleted successfully' };
   }
@@ -415,6 +439,39 @@ export class AuthService {
     }
     const user = await this.usersService.findOne(payload.sub);
     return this.buildAuthResponse(user);
+  }
+
+  /**
+   * Native refresh tokens are recorded as hashes and consumed once. This gives
+   * SecureStore clients genuine rotation while the browser cookie flow remains
+   * backwards compatible and stateless.
+   */
+  async refreshMobileWithRefreshToken(refreshToken: string) {
+    const payload = this.verifyRefreshToken(refreshToken);
+    if (!payload.jti) {
+      throw new UnauthorizedException('Invalid mobile refresh token');
+    }
+    const tokenHash = this.hashMobileRefreshToken(refreshToken);
+    const consumed = await this.mobileRefreshTokens.delete({
+      userId: payload.sub,
+      tokenHash,
+    });
+    if (!consumed.affected) {
+      throw new UnauthorizedException('Refresh token has already been used');
+    }
+    const user = await this.usersService.findOne(payload.sub);
+    if (user.role === UserRole.ADMIN) {
+      throw new ForbiddenException(
+        'Admin accounts are not available in the mobile application.',
+      );
+    }
+    return this.buildMobileAuthResponse(user);
+  }
+
+  async revokeMobileRefreshToken(refreshToken: string): Promise<void> {
+    await this.mobileRefreshTokens.delete({
+      tokenHash: this.hashMobileRefreshToken(refreshToken),
+    });
   }
 
   /** When true, frontend + API share a parent domain (e.g. www + api); set `COOKIE_DOMAIN`. */
@@ -555,16 +612,71 @@ export class AuthService {
     };
   }
 
-  private signRefreshToken(userId: number): string {
+  private async buildMobileAuthResponse(user: User) {
+    const publicUser = this.toPublicUser(user);
+    const payload = {
+      sub: publicUser.id,
+      role: publicUser.role,
+      phone: publicUser.phone ?? undefined,
+      email: publicUser.email ?? undefined,
+      onboardingCompleted: publicUser.onboardingCompleted,
+    };
+    const refreshToken = this.signRefreshToken(user.id, randomUUID());
+    await this.mobileRefreshTokens.delete({
+      userId: user.id,
+      expiresAt: LessThan(new Date()),
+    });
+    await this.mobileRefreshTokens.save(
+      this.mobileRefreshTokens.create({
+        userId: user.id,
+        tokenHash: this.hashMobileRefreshToken(refreshToken),
+        expiresAt: this.getRefreshExpiryDate(),
+      }),
+    );
+    return {
+      access_token: this.jwtService.sign(payload),
+      refresh_token: refreshToken,
+      user: publicUser,
+    };
+  }
+
+  private signRefreshToken(userId: number, tokenId?: string): string {
     const secret = this.getRefreshJwtSecret();
     const expiresIn =
       parseDurationToSeconds(
         this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d',
       ) ?? 7 * 24 * 60 * 60;
     return this.jwtService.sign(
-      { sub: userId, typ: 'refresh' },
+      { sub: userId, typ: 'refresh', ...(tokenId ? { jti: tokenId } : {}) },
       { secret, expiresIn },
     );
+  }
+
+  private verifyRefreshToken(refreshToken: string): RefreshJwtPayload {
+    try {
+      const payload = this.jwtService.verify(refreshToken, {
+        secret: this.getRefreshJwtSecret(),
+      }) as RefreshJwtPayload;
+      if (payload.typ !== 'refresh') {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+      return payload;
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+  }
+
+  private hashMobileRefreshToken(token: string) {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
+  private getRefreshExpiryDate() {
+    const seconds =
+      parseDurationToSeconds(
+        this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d',
+      ) ?? 7 * 24 * 60 * 60;
+    return new Date(Date.now() + seconds * 1000);
   }
 
   private getRefreshJwtSecret(): string {
@@ -693,6 +805,7 @@ export class AuthService {
         user.longitude !== null && user.longitude !== undefined
           ? Number(user.longitude)
           : null,
+      favorites: (user.favorites ?? []).map(Number),
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };

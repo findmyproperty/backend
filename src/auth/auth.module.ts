@@ -7,10 +7,13 @@ import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { MobileRefreshToken } from './entities/mobile-refresh-token.entity';
 
 @Module({
   imports: [
     UsersModule,
+    TypeOrmModule.forFeature([MobileRefreshToken]),
     forwardRef(() => VendorsModule),
     PassportModule,
     JwtModule.registerAsync({

@@ -1,16 +1,23 @@
 import {
   Controller,
+  Body,
+  Delete,
   ForbiddenException,
   Get,
   Param,
   ParseIntPipe,
   Patch,
+  Post,
   Req,
   UseGuards,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { NotificationsService } from './notifications.service';
+import {
+  RegisterMobilePushDeviceDto,
+  UnregisterMobilePushDeviceDto,
+} from './dto/register-mobile-push-device.dto';
 
 interface RequestWithUser extends Request {
   user?: { userId: number; role: string };
@@ -52,5 +59,26 @@ export class NotificationsController {
     const userId = req.user?.userId;
     if (!userId) throw new ForbiddenException('Not authenticated');
     return this.service.markRead(id, userId);
+  }
+
+  @Post('devices')
+  async registerDevice(
+    @Req() req: RequestWithUser,
+    @Body() body: RegisterMobilePushDeviceDto,
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) throw new ForbiddenException('Not authenticated');
+    return this.service.registerDevice(userId, body);
+  }
+
+  @Delete('devices')
+  async unregisterDevice(
+    @Req() req: RequestWithUser,
+    @Body() body: UnregisterMobilePushDeviceDto,
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) throw new ForbiddenException('Not authenticated');
+    await this.service.unregisterDevice(userId, body.token);
+    return { ok: true };
   }
 }

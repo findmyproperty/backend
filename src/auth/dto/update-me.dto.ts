@@ -1,5 +1,4 @@
-import { IsEmail, IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
-import { UserRole } from 'src/users/entities/user.entity';
+import { IsEmail, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class UpdateMeDto {
   @IsEmail()
@@ -42,10 +41,4 @@ export class UpdateMeDto {
   @IsOptional()
   longitude?: number;
 
-  // No default value here on purpose: with the global ValidationPipe's
-  // `transform: true`, a default would silently demote any user who PATCHes
-  // /auth/me without an explicit `role` (e.g. saving just their name).
-  @IsEnum(UserRole)
-  @IsOptional()
-  role?: UserRole;
 }

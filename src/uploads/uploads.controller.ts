@@ -1,6 +1,8 @@
 import {
+  BadRequestException,
   Controller,
   Post,
+  UseGuards,
   UseInterceptors,
   UploadedFile,
 } from '@nestjs/common';
@@ -14,12 +16,14 @@ import {
   getUploadDestination,
   UPLOAD_PUBLIC_PATH,
 } from './upload-paths';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 // Ensure the upload directory exists at module load time
 const uploadDest = ensureUploadDirExists();
 
 @Controller('upload')
 export class UploadController {
+  @UseGuards(JwtAuthGuard)
   @Post()
   @UseInterceptors(
     FileInterceptor('file', {
@@ -30,9 +34,28 @@ export class UploadController {
           cb(null, uniqueName);
         },
       }),
+      limits: { fileSize: 20 * 1024 * 1024 },
+      fileFilter: (_req, file, callback) => {
+        const allowed = [
+          'image/jpeg',
+          'image/png',
+          'image/webp',
+          'image/heic',
+          'video/mp4',
+          'video/quicktime',
+          'application/pdf',
+        ];
+        callback(
+          allowed.includes(file.mimetype)
+            ? null
+            : new BadRequestException('Unsupported upload type'),
+          allowed.includes(file.mimetype),
+        );
+      },
     }),
   )
   async uploadFile(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('A file is required');
     if (file.mimetype.startsWith('image/')) {
       const buffer = fs.readFileSync(file.path);
       const compressedBuffer = await sharp(buffer)
