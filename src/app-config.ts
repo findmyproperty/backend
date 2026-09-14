@@ -13,6 +13,7 @@ const LOCAL_DEV_ORIGINS = [
   'http://www.findmypropertys.com',
   'https://findmypropertys.com',
   'https://www.findmypropertys.com',
+  'http://localhost:8081/'
 ];
 
 function getAllowedOrigins(): string[] {
