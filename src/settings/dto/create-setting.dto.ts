@@ -108,6 +108,17 @@ export class CreateSettingDto {
   landingReactionIds?: number[];
 
   @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  heroBannerPropertyCount?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  heroBannerPropertyIds?: number[];
+
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => FaqItemDto)

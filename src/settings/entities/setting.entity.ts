@@ -81,6 +81,12 @@ export class Setting {
   @Column({ name: 'landing_reaction_ids', type: 'json', nullable: true })
   landingReactionIds!: number[] | null;
 
+  @Column({ name: 'hero_banner_property_count', type: 'int', default: 5 })
+  heroBannerPropertyCount!: number;
+
+  @Column({ name: 'hero_banner_property_ids', type: 'json', nullable: true })
+  heroBannerPropertyIds!: number[] | null;
+
   @Column({ name: 'faqs', type: 'json', nullable: true })
   faqs!: Array<{ id: string; question: string; answer: string }> | null;
 
