@@ -651,7 +651,7 @@ View the listing: ${propertyUrl}`,
   /** Single property for public/detail API: `agent` (listing) + `creator` (submitter). */
   async findOneWithAgent(
     id: number,
-    options?: { viewerRole?: string },
+    options?: { viewerRole?: string; viewerUserId?: number },
   ): Promise<
     Property & {
       agent: PropertyUserSummary | null;
@@ -660,9 +660,21 @@ View the listing: ${propertyUrl}`,
   > {
     const property = await this.findOne(id);
     const isAdmin = options?.viewerRole === UserRole.ADMIN;
-    console.log('property', property);
-    console.log('isAdmin', options?.viewerRole);
-    if (property.status !== PropertyStatus.APPROVED && !isAdmin) {
+    const isCreator =
+      options?.viewerUserId != null &&
+      property.createdBy != null &&
+      Number(property.createdBy) === Number(options.viewerUserId);
+    const isAssignedAgent =
+      options?.viewerUserId != null &&
+      property.assignedAgentId != null &&
+      Number(property.assignedAgentId) === Number(options.viewerUserId);
+
+    if (
+      property.status !== PropertyStatus.APPROVED &&
+      !isAdmin &&
+      !isCreator &&
+      !isAssignedAgent
+    ) {
       throw new NotFoundException(`Property with ID ${id} not found`);
     }
     const agentUserId = this.getListingAgentUserId(property);
