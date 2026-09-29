@@ -42,8 +42,9 @@ export enum FurnishingType {
 }
 
 export class FloorPlanDto {
+  @IsOptional()
   @IsString()
-  id: string;
+  id?: string;
 
   @IsString()
   floorName: string;
@@ -51,6 +52,18 @@ export class FloorPlanDto {
   @IsOptional()
   @IsString()
   customName?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  rooms?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  bathrooms?: number;
 
   @IsString()
   imageUrl: string;
