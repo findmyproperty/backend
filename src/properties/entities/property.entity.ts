@@ -80,16 +80,16 @@ export class Property {
   @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
   longitude: number | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int', nullable: true })
   bedrooms: number | null;
 
-  @Column('decimal', { nullable: true })
+  @Column({ type: 'decimal', nullable: true })
   bathrooms: number | null;
 
   @Column('decimal')
   area: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int', nullable: true })
   yearBuilt: number | null;
 
   @Column('simple-array', { nullable: true })
