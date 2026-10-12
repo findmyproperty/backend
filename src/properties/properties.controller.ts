@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { PropertiesService } from './properties.service';
 import { CreatePropertyDto, PropertyStatus } from './dto/create-property.dto';
+import { assertPostingContract } from './property-posting';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { ApprovePropertyDto } from './dto/approve-property.dto';
 import { RejectPropertyDto } from './dto/reject-property.dto';
@@ -45,6 +46,7 @@ export class PropertiesController {
     @Req() req: RequestWithUser,
   ) {
     const userId = req.user?.userId;
+    assertPostingContract(createPropertyDto);
     // Enforce default status
     if (req.user?.role !== 'admin') {
       createPropertyDto.status = PropertyStatus.PENDING;
@@ -165,6 +167,7 @@ export class PropertiesController {
     if (!userId) {
       throw new ForbiddenException('User not authenticated properly');
     }
+    assertPostingContract(updatePropertyDto);
     return this.propertiesService.update(
       id,
       updatePropertyDto,

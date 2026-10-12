@@ -6,7 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository, Brackets, SelectQueryBuilder } from 'typeorm';
+import { In, Repository, Brackets, SelectQueryBuilder, QueryDeepPartialEntity } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { MailService } from '../mail/mail.service';
 import { CreatePropertyDto, PropertyStatus, ListingType } from './dto/create-property.dto';
@@ -759,7 +759,10 @@ View the listing: ${propertyUrl}`,
       updatedProperty.approvedAt = null;
     }
 
-    const result = await this.propertyRepository.update(id, updatedProperty);
+    const result = await this.propertyRepository.update(
+      id,
+      updatedProperty as QueryDeepPartialEntity<Property>,
+    );
     if (result.affected === 0) {
       throw new NotFoundException(`Property with ID ${id} not found`);
     }

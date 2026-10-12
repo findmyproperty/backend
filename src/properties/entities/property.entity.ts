@@ -36,6 +36,18 @@ export class Property {
   })
   listingType: ListingType;
 
+  /** Additive posting category. Null on listings saved before the sector form. */
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  propertySector: string | null;
+
+  /** Listing workflow inside `propertySector`. Null when the sector is null. */
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  postingType: string | null;
+
+  /** Fields that belong to one sector + posting type pair. */
+  @Column({ type: 'json', nullable: true })
+  details: Record<string, unknown> | null;
+
   // Stored as free-form string to support admin-managed dynamic categories.
   @Column({ type: 'varchar', length: 120 })
   propertyType: string;
@@ -68,17 +80,17 @@ export class Property {
   @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
   longitude: number | null;
 
-  @Column()
-  bedrooms: number;
+  @Column({ nullable: true })
+  bedrooms: number | null;
 
-  @Column('decimal')
-  bathrooms: number;
+  @Column('decimal', { nullable: true })
+  bathrooms: number | null;
 
   @Column('decimal')
   area: number;
 
-  @Column()
-  yearBuilt: number;
+  @Column({ nullable: true })
+  yearBuilt: number | null;
 
   @Column('simple-array', { nullable: true })
   amenities: string[];

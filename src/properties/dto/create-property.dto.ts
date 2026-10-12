@@ -5,9 +5,11 @@ import {
   IsArray,
   IsOptional,
   IsInt,
+  IsObject,
   Min,
   Max,
   ValidateNested,
+  ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -87,6 +89,21 @@ export class CreatePropertyDto {
   @IsEnum(ListingType)
   listingType: ListingType;
 
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  propertySector?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  postingType?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsObject()
+  details?: Record<string, unknown> | null;
+
   // Accepts any category name managed via the admin Categories API.
   @IsString()
   propertyType: string;
@@ -123,21 +140,27 @@ export class CreatePropertyDto {
   @Max(180)
   longitude?: number;
 
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsNumber()
   @Min(0)
-  bedrooms: number;
+  bedrooms?: number | null;
 
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsNumber()
   @Min(0)
-  bathrooms: number;
+  bathrooms?: number | null;
 
   @IsNumber()
   @Min(0)
   area: number;
 
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsNumber()
   @Min(1900)
-  yearBuilt: number;
+  yearBuilt?: number | null;
 
   @IsOptional()
   @IsArray()
