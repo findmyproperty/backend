@@ -98,6 +98,8 @@ export interface EventManagementDetails {
   services: Array<
     | 'decoration'
     | 'catering'
+    | 'home_catering'
+    | 'corporate_catering_veg_non_veg'
     | 'photography'
     | 'music'
     | 'hosting'

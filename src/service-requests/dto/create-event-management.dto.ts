@@ -12,6 +12,10 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import {
+  EVENT_MANAGEMENT_SERVICE_KEYS,
+  type EventManagementServiceKey,
+} from '../event-management.constants';
 import { BaseServiceRequestDto } from './base-service-request.dto';
 import { StopDto } from './stop.dto';
 
@@ -36,28 +40,9 @@ export class EventManagementDetailsDto {
 
   @IsArray()
   @ArrayMinSize(1)
-  @ArrayMaxSize(7)
-  @IsIn(
-    [
-      'decoration',
-      'catering',
-      'photography',
-      'music',
-      'hosting',
-      'return_gifts',
-      'venue_booking',
-    ],
-    { each: true },
-  )
-  services: Array<
-    | 'decoration'
-    | 'catering'
-    | 'photography'
-    | 'music'
-    | 'hosting'
-    | 'return_gifts'
-    | 'venue_booking'
-  >;
+  @ArrayMaxSize(8)
+  @IsIn([...EVENT_MANAGEMENT_SERVICE_KEYS], { each: true })
+  services: EventManagementServiceKey[];
 
   @IsOptional()
   @ValidateNested()

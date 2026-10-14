@@ -987,6 +987,8 @@ export class ServiceRequestsNotifier {
     const serviceLabel: Record<string, string> = {
       decoration: 'Decoration',
       catering: 'Catering',
+      home_catering: 'Home catering',
+      corporate_catering_veg_non_veg: 'Corporate catering (veg & non-veg)',
       photography: 'Photography',
       music: 'Music / DJ',
       hosting: 'Host / anchor',
