@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { VendorLead, VendorLeadStatus } from './entities/vendor-lead.entity';
 import { VendorLeadUpdate } from './entities/vendor-lead-update.entity';
 import { PatchVendorLeadDto } from './dto/patch-vendor-lead.dto';
@@ -120,6 +120,46 @@ export class VendorLeadsService {
       order: { updatedAt: 'DESC' },
     });
     return Promise.all(rows.map((r) => this.mapLeadForVendor(r)));
+  }
+
+  /** Leads + work updates for customer service-request timelines (batch). */
+  async findLeadContextsForServiceRequests(
+    serviceRequestIds: number[],
+  ): Promise<
+    Map<number, { lead: VendorLead; updates: VendorLeadUpdate[] }>
+  > {
+    const ids = serviceRequestIds.filter((id) => Number.isInteger(id) && id > 0);
+    const map = new Map<
+      number,
+      { lead: VendorLead; updates: VendorLeadUpdate[] }
+    >();
+    if (ids.length === 0) return map;
+
+    const leads = await this.leadRepo.find({
+      where: { serviceRequestId: In(ids) },
+      order: { createdAt: 'ASC' },
+    });
+    if (leads.length === 0) return map;
+
+    const leadIds = leads.map((l) => l.id);
+    const updates = await this.updateRepo.find({
+      where: { vendorLeadId: In(leadIds) },
+      order: { createdAt: 'ASC' },
+    });
+    const updatesByLead = new Map<number, VendorLeadUpdate[]>();
+    for (const u of updates) {
+      const list = updatesByLead.get(u.vendorLeadId) ?? [];
+      list.push(u);
+      updatesByLead.set(u.vendorLeadId, list);
+    }
+    for (const lead of leads) {
+      if (lead.serviceRequestId == null) continue;
+      map.set(lead.serviceRequestId, {
+        lead,
+        updates: updatesByLead.get(lead.id) ?? [],
+      });
+    }
+    return map;
   }
 
   async findOneForVendor(

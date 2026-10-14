@@ -3,6 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { escapeHtmlForEmail } from '../helper/escape-html';
 import { BRAND_COLOR, BRAND_ON_COLOR } from '../helper/email-theme';
 import { AdminMailNotifier } from '../mail/admin-mail.notifier';
+import {
+  adminVendorLeadsUrl,
+  resolveClientBaseUrl,
+} from '../helper/frontend-urls';
 import { VendorLead } from './entities/vendor-lead.entity';
 
 @Injectable()
@@ -68,9 +72,6 @@ export class VendorLeadsNotifier {
   }
 
   private adminVendorLeadsUrl(): string {
-    const base =
-      this.configService.get<string>('CLIENT_URL')?.trim() ||
-      'http://localhost:3000';
-    return `${base.replace(/\/+$/, '')}/admin/vendor-leads`;
+    return adminVendorLeadsUrl(resolveClientBaseUrl(this.configService));
   }
 }

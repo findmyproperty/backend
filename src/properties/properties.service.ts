@@ -18,8 +18,16 @@ import { PropertyComment } from './entities/property-comment.entity';
 import { CreatePropertyCommentDto } from './dto/create-property-comment.dto';
 import { UsersService } from '../users/users.service';
 import { User, UserRole } from '../users/entities/user.entity';
-import { buildPropertyPath } from '../helper/property-slug';
 import { escapeHtmlForEmail } from '../helper/escape-html';
+import {
+  adminApprovalsUrl,
+  agentLeadsUrl,
+  editPropertyUrl,
+  emailCtaButton,
+  publicPropertyUrl,
+  resolveClientBaseUrl,
+  tenantListingsUrl,
+} from '../helper/frontend-urls';
 import { BRAND_COLOR, BRAND_ON_COLOR } from '../helper/email-theme';
 import {
   AdminPropertySortBy,
@@ -236,23 +244,25 @@ export class PropertiesService {
     options?: { isResubmission?: boolean },
   ) {
     const admins = await this.usersService.findAllAdmins();
-    const frontendUrl = this.configService.get<string>('CLIENT_APPROVAL_URL');
+    const base = resolveClientBaseUrl(this.configService);
+    const approvalsUrl = adminApprovalsUrl(base);
 
     const isResubmission = options?.isResubmission === true;
     const subject = isResubmission
       ? 'Listing updated — awaiting review'
       : 'New Property Awaiting Approval';
     const text = isResubmission
-      ? `The listing "${property.title}" was updated by the owner and is pending review again. Review it here: ${frontendUrl}/approvals`
-      : `A new property "${property.title}" has been submitted and is awaiting approval. View it here: ${frontendUrl}/approvals`;
+      ? `The listing "${property.title}" was updated by the owner and is pending review again. Review it here: ${approvalsUrl}`
+      : `A new property "${property.title}" has been submitted and is awaiting approval. View it here: ${approvalsUrl}`;
+    const reviewBtn = `<a href="${approvalsUrl}" style="display:inline-block;padding:10px 15px;background-color:${BRAND_COLOR};color:${BRAND_ON_COLOR};text-decoration:none;border-radius:5px;">Review Properties</a>`;
     const html = isResubmission
       ? `
             <p>The listing <b>${property.title}</b> was <b>updated</b> and is <b>pending review</b> again.</p>
-            <a href="${frontendUrl}" style="display:inline-block;padding:10px 15px;background-color:${BRAND_COLOR};color:${BRAND_ON_COLOR};text-decoration:none;border-radius:5px;">Review Properties</a>
+            ${reviewBtn}
           `
       : `
             <p>A new property <b>${property.title}</b> has been submitted and is awaiting approval.</p>
-            <a href="${frontendUrl}" style="display:inline-block;padding:10px 15px;background-color:${BRAND_COLOR};color:${BRAND_ON_COLOR};text-decoration:none;border-radius:5px;">Review Properties</a>
+            ${reviewBtn}
           `;
 
     for (const admin of admins) {
@@ -280,7 +290,9 @@ export class PropertiesService {
     email: string,
     name?: string | null,
   ) {
-    const propertyUrl = `${this.configService.get<string>('CLIENT_URL')}/properties/${property.id}`;
+    const base = resolveClientBaseUrl(this.configService);
+    const propertyUrl = publicPropertyUrl(base, property.id, property.title);
+    const listingsUrl = tenantListingsUrl(base);
 
     await this.mail.send({
       templateKey: 'property.creator_approved',
@@ -288,7 +300,7 @@ export class PropertiesService {
       triggerEvent: 'approved',
       to: email,
       subject: 'Property Approved!',
-      text: `Congratulations${name ? ` ${name}` : ''}! Your property "${property.title}" has been approved and is now live. View it here: ${propertyUrl}`,
+      text: `Congratulations${name ? ` ${name}` : ''}! Your property "${property.title}" has been approved and is now live. View it here: ${propertyUrl}\nManage listings: ${listingsUrl}`,
       html: `
           <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
             <h2 style="color: #28a745;">Property Approved!</h2>
@@ -296,6 +308,7 @@ export class PropertiesService {
             <p>Your property <b>${property.title}</b> has been reviewed and approved by our team. It is now live on our platform.</p>
             <p>You can view your property here:</p>
             <a href="${propertyUrl}" style="display:inline-block;padding:10px 20px;background-color:#28a745;color:white;text-decoration:none;border-radius:5px;font-weight:bold;">View Property</a>
+            ${emailCtaButton(listingsUrl, 'Manage my listings')}
             <p style="margin-top: 20px;">Thank you for using our platform!</p>
           </div>
         `,
@@ -312,9 +325,8 @@ export class PropertiesService {
     name: string | null | undefined,
     reason: string,
   ) {
-    const frontendUrl =
-      this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
-    const editUrl = `${frontendUrl}/property/${buildPropertyPath(property.id, property.title)}`;
+    const base = resolveClientBaseUrl(this.configService);
+    const editUrl = editPropertyUrl(base, property.id);
 
     await this.mail.send({
       templateKey: 'property.creator_rejected',
@@ -339,14 +351,14 @@ ${editUrl}`,
             <p><b>Reason:</b></p>
             <blockquote style="border-left: 4px solid #c0392b; padding-left: 12px; margin: 12px 0; color: #444;">${escapeHtmlForEmail(reason)}</blockquote>
             <p>You may update your listing and submit it again for review when ready.</p>
-            <p><a href="${editUrl}" style="display:inline-block;padding:10px 20px;background-color:#333;color:white;text-decoration:none;border-radius:5px;font-weight:bold;">View listing</a></p>
+            ${emailCtaButton(editUrl, 'Update listing')}
           </div>
         `,
       recipientUserId: property.createdBy,
       recipientRole: 'tenant',
       entityType: 'property',
       entityId: property.id,
-      metadata: { reason },
+      metadata: { reason, propertyStatus: 'Rejected' },
     });
   }
 
@@ -355,9 +367,9 @@ ${editUrl}`,
     email: string,
     name?: string | null,
   ) {
-    const frontendUrl =
-      this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
-    const propertyUrl = `${frontendUrl}/properties/${property.id}`;
+    const base = resolveClientBaseUrl(this.configService);
+    const propertyUrl = publicPropertyUrl(base, property.id, property.title);
+    const leadsUrl = agentLeadsUrl(base);
     const agentUserId = property.assignedAgentId ?? null;
 
     await this.mail.send({
@@ -370,14 +382,15 @@ ${editUrl}`,
 
 You have been assigned as the listing agent for "${property.title}". You will receive tenant enquiries for this property.
 
-View the listing: ${propertyUrl}`,
+View the listing: ${propertyUrl}
+Open leads: ${leadsUrl}`,
       html: `
           <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
             <h2 style="color: ${BRAND_COLOR};">New listing Assigned</h2>
             <p>Hello${name ? ` <b>${name}</b>` : ''},</p>
             <p>You have been assigned as the <b>listing agent</b> for <b>${property.title}</b>. Tenant enquiries for this property will appear in your leads.</p>
             <p><a href="${propertyUrl}" style="display:inline-block;padding:10px 20px;background-color:${BRAND_COLOR};color:${BRAND_ON_COLOR};text-decoration:none;border-radius:5px;font-weight:bold;">View property</a></p>
-            <p style="margin-top: 16px; font-size: 14px; color: #666;">If your app has a leads dashboard, open it from your agent account to manage enquiries.</p>
+            ${emailCtaButton(leadsUrl, 'Open my leads')}
           </div>
         `,
       recipientUserId: agentUserId,

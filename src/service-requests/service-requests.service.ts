@@ -26,8 +26,24 @@ import { ListServiceRequestsQueryDto } from './dto/list-service-requests.query.d
 import { ServiceRequestsNotifier } from './service-requests.notifier';
 import { DistanceService } from './distance.service';
 import { VendorLeadsService } from '../vendor-leads/vendor-leads.service';
+import {
+  VendorLead,
+  VendorLeadStatus,
+} from '../vendor-leads/entities/vendor-lead.entity';
+import { VendorLeadUpdate } from '../vendor-leads/entities/vendor-lead-update.entity';
 import { VendorsService } from '../vendors/vendors.service';
 import { SettingsService } from '../settings/settings.service';
+
+export interface ServiceRequestTimelineItem {
+  id: string;
+  title: string;
+  description?: string | null;
+  note?: string | null;
+  milestone?: string | null;
+  status?: ServiceRequestStatus | null;
+  actorLabel?: string | null;
+  timestamp: string;
+}
 
 export interface CustomerReactionResponse {
   id: number;
@@ -70,6 +86,7 @@ export interface ServiceRequestResponse {
   customerReviewedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  timeline?: ServiceRequestTimelineItem[];
 }
 
 export interface PagedServiceRequests {
@@ -297,7 +314,17 @@ export class ServiceRequestsService {
       where: { userId },
       order: { createdAt: 'DESC' },
     });
-    return rows.map((r) => this.map(r));
+    const leadContexts =
+      await this.vendorLeadsService.findLeadContextsForServiceRequests(
+        rows.map((r) => r.id),
+      );
+    return rows.map((r) => {
+      const ctx = leadContexts.get(r.id);
+      return {
+        ...this.map(r),
+        timeline: this.buildCustomerTimeline(r, ctx?.lead, ctx?.updates),
+      };
+    });
   }
 
   async submitFeedback(
@@ -492,6 +519,150 @@ export class ServiceRequestsService {
       [ServiceRequestStatus.COMPLETED]: 0,
       [ServiceRequestStatus.CANCELLED]: 0,
     };
+  }
+
+  private buildCustomerTimeline(
+    r: ServiceRequest,
+    lead?: VendorLead,
+    updates: VendorLeadUpdate[] = [],
+  ): ServiceRequestTimelineItem[] {
+    type Entry = { at: number; item: ServiceRequestTimelineItem };
+    const entries: Entry[] = [];
+
+    const push = (at: Date, item: ServiceRequestTimelineItem) => {
+      entries.push({ at: at.getTime(), item });
+    };
+
+    push(r.createdAt, {
+      id: `sr-created-${r.id}`,
+      title: 'Request created',
+      description: 'Your request was received by our team.',
+      actorLabel: 'Customer',
+      timestamp: r.createdAt.toISOString(),
+    });
+
+    if (r.assignedVendorUserId != null) {
+      const at = lead?.createdAt ?? r.updatedAt;
+      push(at, {
+        id: `sr-vendor-${r.id}`,
+        title: 'Vendor assigned',
+        description: 'A service partner has been assigned to this request.',
+        actorLabel: 'Admin',
+        timestamp: at.toISOString(),
+      });
+    }
+
+    if (lead) {
+      const leadTitle = this.customerLeadStatusTitle(lead.status);
+      if (leadTitle) {
+        const at =
+          lead.adminApprovedAt ??
+          (lead.status === VendorLeadStatus.COMPLETED
+            ? lead.updatedAt
+            : lead.updatedAt);
+        push(at, {
+          id: `lead-status-${lead.id}-${lead.status}`,
+          title: leadTitle,
+          description: 'Update from your assigned service partner.',
+          actorLabel: 'Partner',
+          timestamp: at.toISOString(),
+        });
+      }
+    }
+
+    for (const u of updates) {
+      push(u.createdAt, {
+        id: `lead-update-${u.id}`,
+        milestone: u.milestone,
+        title: u.milestone,
+        note: u.note,
+        description: u.note,
+        actorLabel: 'Partner',
+        timestamp: u.createdAt.toISOString(),
+      });
+    }
+
+    if (r.status !== ServiceRequestStatus.NEW) {
+      push(r.updatedAt, {
+        id: `sr-status-${r.id}-${r.status}`,
+        status: r.status,
+        title: `Status: ${this.customerServiceRequestStatusLabel(r.status)}`,
+        description: this.customerServiceRequestStatusDescription(r.status),
+        actorLabel: 'Team',
+        timestamp: r.updatedAt.toISOString(),
+      });
+    }
+
+    if (r.customerReviewedAt) {
+      push(r.customerReviewedAt, {
+        id: `sr-feedback-${r.id}`,
+        title: 'Feedback submitted',
+        description: 'You shared your service rating.',
+        actorLabel: 'Customer',
+        timestamp: r.customerReviewedAt.toISOString(),
+      });
+    }
+
+    entries.sort((a, b) => a.at - b.at);
+    return entries.map((e) => e.item);
+  }
+
+  private customerLeadStatusTitle(status: VendorLeadStatus): string | null {
+    switch (status) {
+      case VendorLeadStatus.PENDING_ADMIN_REVIEW:
+        return 'Partner matched';
+      case VendorLeadStatus.OPEN:
+        return 'Partner notified';
+      case VendorLeadStatus.ACCEPTED:
+        return 'Partner accepted your request';
+      case VendorLeadStatus.IN_PROGRESS:
+        return 'Work in progress';
+      case VendorLeadStatus.COMPLETED:
+        return 'Partner marked work complete';
+      case VendorLeadStatus.REJECTED:
+        return 'Partner unavailable';
+      case VendorLeadStatus.ADMIN_REJECTED:
+      case VendorLeadStatus.NEW:
+        return null;
+      default:
+        return null;
+    }
+  }
+
+  private customerServiceRequestStatusLabel(
+    status: ServiceRequestStatus,
+  ): string {
+    switch (status) {
+      case ServiceRequestStatus.NEW:
+        return 'New';
+      case ServiceRequestStatus.CONTACTED:
+        return 'In contact';
+      case ServiceRequestStatus.SCHEDULED:
+        return 'Scheduled';
+      case ServiceRequestStatus.COMPLETED:
+        return 'Completed';
+      case ServiceRequestStatus.CANCELLED:
+        return 'Cancelled';
+      default:
+        return status;
+    }
+  }
+
+  private customerServiceRequestStatusDescription(
+    status: ServiceRequestStatus,
+  ): string {
+    switch (status) {
+      case ServiceRequestStatus.CONTACTED:
+        return 'Our team or partner has reached out about your request.';
+      case ServiceRequestStatus.SCHEDULED:
+        return 'Your service has been scheduled or is underway.';
+      case ServiceRequestStatus.COMPLETED:
+        return 'This request has been marked complete.';
+      case ServiceRequestStatus.CANCELLED:
+        return 'This request was cancelled.';
+      default:
+        return 'Your request status was updated.';
+    }
   }
 
   private map(r: ServiceRequest): ServiceRequestResponse {

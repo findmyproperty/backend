@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { escapeHtmlForEmail } from '../helper/escape-html';
 import { BRAND_COLOR, BRAND_ON_COLOR } from '../helper/email-theme';
 import { AdminMailNotifier } from '../mail/admin-mail.notifier';
+import { adminVendorsUrl, resolveClientBaseUrl } from '../helper/frontend-urls';
 import { User } from '../users/entities/user.entity';
 import { VendorProfile } from './entities/vendor-profile.entity';
 
@@ -12,6 +13,43 @@ export class VendorsNotifier {
     private readonly adminMail: AdminMailNotifier,
     private readonly configService: ConfigService,
   ) {}
+
+  notifyAdminsOfKycUpdated(profile: VendorProfile, user: User): void {
+    const businessName =
+      profile.businessName?.trim() || user.name?.trim() || `Vendor #${user.id}`;
+    const subject = `Vendor KYC documents updated — ${businessName}`;
+    const adminUrl = this.adminVendorsUrl();
+    const safeName = escapeHtmlForEmail(businessName);
+
+    const text = [
+      'A verified or pending vendor updated their KYC documents.',
+      '',
+      `Business: ${businessName}`,
+      `Vendor user ID: ${user.id}`,
+      '',
+      `Review: ${adminUrl}`,
+    ].join('\n');
+
+    const html = `
+      <div style="font-family:system-ui,sans-serif;max-width:560px;line-height:1.55;color:#333">
+        <h2 style="color:${BRAND_COLOR};margin:0 0 12px">KYC documents updated</h2>
+        <p><b>${safeName}</b> (user #${user.id}) uploaded or changed KYC documents. Please review if re-verification is needed.</p>
+        <a href="${adminUrl}" style="display:inline-block;padding:10px 16px;background:${BRAND_COLOR};color:${BRAND_ON_COLOR};text-decoration:none;border-radius:6px;font-weight:600">Review vendor partners</a>
+      </div>`;
+
+    this.adminMail.notifyAllAdmins({
+      templateKey: 'vendor.kyc_updated',
+      feature: 'vendor',
+      triggerEvent: 'kyc_updated',
+      subject,
+      text,
+      html,
+      replyTo: user.email ?? undefined,
+      entityType: 'vendor_profile',
+      entityId: profile.id,
+      metadata: { vendorUserId: user.id },
+    });
+  }
 
   notifyAdminsOfKycPending(profile: VendorProfile, user: User): void {
     const businessName =
@@ -61,9 +99,6 @@ export class VendorsNotifier {
   }
 
   private adminVendorsUrl(): string {
-    const base =
-      this.configService.get<string>('CLIENT_URL')?.trim() ||
-      'http://localhost:3000';
-    return `${base.replace(/\/+$/, '')}/admin/vendors`;
+    return adminVendorsUrl(resolveClientBaseUrl(this.configService));
   }
 }

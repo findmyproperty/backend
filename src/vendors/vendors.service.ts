@@ -153,6 +153,10 @@ export class VendorsService {
     const profile = await this.ensureProfileForUser(userId);
     const prevStatus = profile.verificationStatus;
     const prevHadKyc = this.hasKycPayload(profile);
+    const prevDocumentsJson = JSON.stringify(profile.documents ?? null);
+    const prevCertificateUrlsJson = JSON.stringify(
+      profile.certificateUrls ?? null,
+    );
     if (dto.businessName !== undefined) profile.businessName = dto.businessName;
     if (dto.categoryIds !== undefined) profile.categoryIds = dto.categoryIds;
     if (dto.documents !== undefined) profile.documents = dto.documents;
@@ -184,6 +188,22 @@ export class VendorsService {
         (!prevHadKyc && nowHasKyc))
     ) {
       this.vendorsNotifier.notifyAdminsOfKycPending(saved, user);
+    } else {
+      const documentsChanged =
+        dto.documents !== undefined &&
+        JSON.stringify(saved.documents ?? null) !== prevDocumentsJson;
+      const certificatesChanged =
+        dto.certificateUrls !== undefined &&
+        JSON.stringify(saved.certificateUrls ?? null) !==
+          prevCertificateUrlsJson;
+      if (
+        (documentsChanged || certificatesChanged) &&
+        prevHadKyc &&
+        (saved.verificationStatus === VendorVerificationStatus.VERIFIED ||
+          saved.verificationStatus === VendorVerificationStatus.PENDING)
+      ) {
+        this.vendorsNotifier.notifyAdminsOfKycUpdated(saved, user);
+      }
     }
     return await this.mapProfile(saved, user);
   }

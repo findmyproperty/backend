@@ -1,6 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import {
+  adminServiceRequestsUrl,
+  emailCtaButton,
+  myRequestsUrl,
+  resolveClientBaseUrl,
+} from '../helper/frontend-urls';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
 import { VendorProfile } from '../vendors/entities/vendor-profile.entity';
@@ -68,11 +75,16 @@ export class ServiceRequestsNotifier {
   constructor(
     private readonly usersService: UsersService,
     private readonly mail: MailService,
+    private readonly configService: ConfigService,
     @InjectRepository(VendorProfile)
     private readonly vendorProfileRepo: Repository<VendorProfile>,
     @InjectRepository(Category)
     private readonly categoryRepo: Repository<Category>,
   ) {}
+
+  private clientBase(): string {
+    return resolveClientBaseUrl(this.configService);
+  }
 
   notifyAdminsOfNewRequest(request: ServiceRequest): void {
     void this.sendNewRequestEmail(request).catch((err: unknown) => {
@@ -167,13 +179,15 @@ export class ServiceRequestsNotifier {
   ): Promise<void> {
     const label = SERVICE_LABELS[request.serviceType] ?? request.serviceType;
     const subject = `We received your ${label} request`;
+    const trackUrl = myRequestsUrl(this.clientBase());
     const html = `
       <div style="font-family:system-ui,sans-serif;max-width:560px">
         <h2 style="color:${BRAND_COLOR}">Thank you</h2>
         <p>Hi ${escapeHtmlForEmail(request.name)},</p>
         <p>We received your <strong>${escapeHtmlForEmail(label)}</strong> request (ID #${request.id}). Our team will contact you shortly.</p>
+        ${emailCtaButton(trackUrl, 'Track my request')}
       </div>`;
-    const text = `Hi ${request.name},\n\nWe received your ${label} request (ID #${request.id}). Our team will contact you shortly.`;
+    const text = `Hi ${request.name},\n\nWe received your ${label} request (ID #${request.id}). Our team will contact you shortly.\n\nTrack your request: ${trackUrl}`;
 
     await this.mail.send({
       templateKey: 'service_request.customer_confirmation',
@@ -387,6 +401,15 @@ export class ServiceRequestsNotifier {
         : recipient === 'vendor'
           ? 'Hi,'
           : 'Admin update:';
+    const cta =
+      recipient === 'customer'
+        ? emailCtaButton(myRequestsUrl(this.clientBase()), 'Track my request')
+        : recipient === 'admin'
+          ? emailCtaButton(
+              adminServiceRequestsUrl(this.clientBase()),
+              'Open service requests',
+            )
+          : '';
     return `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <p>${intro}</p>
@@ -397,6 +420,7 @@ export class ServiceRequestsNotifier {
             ? ''
             : `<br/>Phone: ${escapeHtmlForEmail(request.phone)}`
         }</p>
+        ${cta}
       </div>
     `;
   }
@@ -431,11 +455,21 @@ export class ServiceRequestsNotifier {
         : recipient === 'vendor'
           ? 'Hi,'
           : 'Admin update:';
+    const cta =
+      recipient === 'customer'
+        ? emailCtaButton(myRequestsUrl(this.clientBase()), 'Track my request')
+        : recipient === 'admin'
+          ? emailCtaButton(
+              adminServiceRequestsUrl(this.clientBase()),
+              'Open service requests',
+            )
+          : '';
     return `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <p>${intro}</p>
         <p>The <b>${escapeHtmlForEmail(label)}</b> service request <b>#${request.id}</b> has been marked <b>completed</b>.</p>
         <p>Customer: ${escapeHtmlForEmail(request.name)}</p>
+        ${cta}
       </div>
     `;
   }
@@ -692,15 +726,17 @@ export class ServiceRequestsNotifier {
     const label = SERVICE_LABELS[request.serviceType] ?? request.serviceType;
     const subject = `Your ${label} request update`;
     const safeName = escapeHtmlForEmail(request.name);
+    const trackUrl = myRequestsUrl(this.clientBase());
     const html = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <p>Hi ${safeName},</p>
         <p>Your <b>${escapeHtmlForEmail(label)}</b> request (ID #${request.id}) was updated from
           <b>${escapeHtmlForEmail(previousStatus)}</b> to <b>${escapeHtmlForEmail(request.status)}</b>.</p>
         <p>Our team will be in touch shortly if further action is needed.</p>
+        ${emailCtaButton(trackUrl, 'Track my request')}
       </div>
     `;
-    const text = `Hi ${request.name},\n\nYour ${label} request (ID #${request.id}) is now "${request.status}" (was "${previousStatus}").`;
+    const text = `Hi ${request.name},\n\nYour ${label} request (ID #${request.id}) is now "${request.status}" (was "${previousStatus}").\n\nTrack your request: ${trackUrl}`;
 
     await this.mail.send({
       templateKey: 'service_request.customer_status',
@@ -767,6 +803,7 @@ export class ServiceRequestsNotifier {
         </table>
 
         ${detailsHtml}
+        ${emailCtaButton(adminServiceRequestsUrl(this.clientBase()), 'Review in admin')}
       </div>
     `;
   }

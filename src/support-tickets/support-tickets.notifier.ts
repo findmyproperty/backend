@@ -3,6 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { escapeHtmlForEmail } from '../helper/escape-html';
 import { BRAND_COLOR, BRAND_ON_COLOR } from '../helper/email-theme';
 import { AdminMailNotifier } from '../mail/admin-mail.notifier';
+import {
+  adminComplaintsUrl,
+  resolveClientBaseUrl,
+} from '../helper/frontend-urls';
 import { SupportTicket } from './entities/support-ticket.entity';
 
 @Injectable()
@@ -72,9 +76,6 @@ export class SupportTicketsNotifier {
   }
 
   private adminComplaintsUrl(): string {
-    const base =
-      this.configService.get<string>('CLIENT_URL')?.trim() ||
-      'http://localhost:3000';
-    return `${base.replace(/\/+$/, '')}/admin/complaints`;
+    return adminComplaintsUrl(resolveClientBaseUrl(this.configService));
   }
 }
