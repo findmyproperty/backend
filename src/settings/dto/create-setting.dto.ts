@@ -119,6 +119,12 @@ export class CreateSettingDto {
   heroBannerPropertyIds?: number[];
 
   @IsOptional()
+  @Transform(emptyStringToNull)
+  @ValidateIf((_o, v) => v !== null)
+  @IsUrl({ require_tld: false })
+  heroBannerImageUrl?: string | null;
+
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => FaqItemDto)

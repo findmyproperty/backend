@@ -87,6 +87,9 @@ export class Setting {
   @Column({ name: 'hero_banner_property_ids', type: 'json', nullable: true })
   heroBannerPropertyIds!: number[] | null;
 
+  @Column({ name: 'hero_banner_image_url', type: 'text', nullable: true })
+  heroBannerImageUrl!: string | null;
+
   @Column({ name: 'faqs', type: 'json', nullable: true })
   faqs!: Array<{ id: string; question: string; answer: string }> | null;
 
