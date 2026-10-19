@@ -13,23 +13,36 @@ const LOCAL_DEV_ORIGINS = [
   'http://www.findmypropertys.com',
   'https://findmypropertys.com',
   'https://www.findmypropertys.com',
+  'http://192.168.1.20:8081',
+  'http://localhost:8081',
 ];
 
 function getAllowedOrigins(): string[] {
-  const configured = process.env.CLIENT_URL;
-  const fallback =
-    'https://real-estate-self-nu.vercel.app,http://localhost:5173';
-
-  const fromEnv = (configured || fallback)
-    .split(',')
+  const configuredOrigins = [process.env.CLIENT_URL, process.env.CORS_ORIGINS]
+    .filter((origins): origins is string => Boolean(origins))
+    .flatMap((origins) => origins.split(','))
     .map((origin) => origin.trim().replace(/\/+$/, ''))
     .filter(Boolean);
+  const fallbackOrigins =
+    configuredOrigins.length > 0
+      ? []
+      : ['https://real-estate-self-nu.vercel.app', 'http://localhost:5173'];
 
   console.log('Allowed origins:', [
-    ...new Set([...fromEnv, ...LOCAL_DEV_ORIGINS]),
+    ...new Set([
+      ...configuredOrigins,
+      ...fallbackOrigins,
+      ...LOCAL_DEV_ORIGINS,
+    ]),
   ]);
 
-  return [...new Set([...fromEnv, ...LOCAL_DEV_ORIGINS])];
+  return [
+    ...new Set([
+      ...configuredOrigins,
+      ...fallbackOrigins,
+      ...LOCAL_DEV_ORIGINS,
+    ]),
+  ];
 }
 
 export function configureNestApp(app: INestApplication) {

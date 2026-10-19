@@ -57,6 +57,24 @@ $ pnpm run test:e2e
 $ pnpm run test:cov
 ```
 
+### CORS and mobile development
+
+CORS is enabled by the shared Nest app configuration for both the local server
+and the Vercel handler. `CLIENT_URL` accepts a comma-separated list of frontend
+origins. Use `CORS_ORIGINS` to add additional allowed origins, such as Expo web:
+
+```env
+CLIENT_URL=https://your-web-app.example
+CORS_ORIGINS=http://localhost:8082,http://192.168.1.20:8082
+```
+
+For Expo web on a phone, allow the exact origin shown in the phone browser. For
+the native Android/iOS app, CORS does not apply, but `EXPO_PUBLIC_API_URL` must
+point to a backend host reachable from the device (for example,
+`http://192.168.1.20:3005`, not `http://localhost:3005`). The backend must be
+reachable over the network and its port must be allowed through the development
+machine's firewall.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
