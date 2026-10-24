@@ -625,20 +625,20 @@ export class AuthService {
     token: string,
   ) {
     try {
-    const frontendUrl =
-      this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
-    const verificationLink = `${frontendUrl}/verify-agent?token=${token}`;
+      const frontendUrl =
+        this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
+      const verificationLink = `${frontendUrl}/verify-vendor?token=${token}`;
 
       const result = await this.mail.send({
         templateKey: 'auth.agent_verify',
         feature: 'auth',
         triggerEvent: 'agent_created',
         to: email,
-        subject: 'Welcome to Find My Property - Verify Your Account',
-        text: `Hello ${name || 'Agent'},\n\nWelcome to Find My Property! Please verify your account by clicking the following link: ${verificationLink}`,
+        subject: 'Welcome to The YBDC - Verify Your Account',
+        text: `Hello ${name || 'Agent'},\n\nWelcome to The YBDC! Please verify your account by clicking the following link: ${verificationLink}`,
         html: `
           <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-            <h2>Welcome to Find My Property!</h2>
+            <h2>Welcome to The YBDC!</h2>
             <p>Hello ${name || 'Agent'},</p>
             <p>Your agent account has been created. Please click the button below to verify your email address and activate your account:</p>
             <a href="${verificationLink}" style="display:inline-block;padding:10px 20px;background-color:${BRAND_COLOR};color:${BRAND_ON_COLOR};text-decoration:none;border-radius:5px;font-weight:bold;">Verify Account</a>
@@ -660,8 +660,8 @@ export class AuthService {
         e,
       );
       throw new InternalServerErrorException(
-          'Failed to send verification email.',
-        );
+        'Failed to send verification email.',
+      );
     }
   }
 
@@ -716,7 +716,7 @@ export class AuthService {
       feature: 'auth',
       triggerEvent: 'otp_requested',
       to: email,
-      subject: 'Verify your email for Find My Property',
+      subject: 'Verify your email for The YBDC',
       text: `Your verification code is ${code}. It expires in ${this.getOtpTtlMinutes()} minutes.`,
       html: `<p>Your verification code is <b>${code}</b>.</p><p>It expires in ${this.getOtpTtlMinutes()} minutes.</p>`,
       createAlert: false,
