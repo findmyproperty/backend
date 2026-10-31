@@ -32,6 +32,7 @@ export enum PropertyType {
 }
 
 export enum PropertyStatus {
+  DRAFT = 'Draft',
   PENDING = 'Pending',
   APPROVED = 'Approved',
   REJECTED = 'Rejected',

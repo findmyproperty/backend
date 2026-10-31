@@ -1,6 +1,7 @@
 import {
   IsArray,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -24,6 +25,11 @@ export class VerifyPhoneOtpDto {
   @IsEnum(UserRole)
   @IsOptional()
   role?: UserRole = UserRole.TENANT;
+
+  /** `register` rejects phones that already have an account. Default `login`. */
+  @IsOptional()
+  @IsIn(['login', 'register'])
+  intent?: 'login' | 'register';
 
   /** Vendor signup only — applied when creating/updating the partner profile. */
   @IsOptional()

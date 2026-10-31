@@ -52,13 +52,45 @@ export class AuthService {
     private vendorsService: VendorsService,
   ) {}
 
-  async requestPhoneOtp(phone: string) {
+  private readonly phoneOtpRequestLog = new Map<string, number[]>();
+
+  private assertPhoneOtpRateLimit(phone: string) {
+    const windowMs = 10 * 60 * 1000;
+    const maxRequests = 5;
+    const now = Date.now();
+    const recent = (this.phoneOtpRequestLog.get(phone) ?? []).filter(
+      (ts) => now - ts < windowMs,
+    );
+    if (recent.length >= maxRequests) {
+      throw new BadRequestException(
+        'Too many OTP requests. Please wait a few minutes before trying again.',
+      );
+    }
+    recent.push(now);
+    this.phoneOtpRequestLog.set(phone, recent);
+  }
+
+  async requestPhoneOtp(
+    phone: string,
+    intent: 'login' | 'register' = 'login',
+  ) {
     const normalizedPhone = this.normalizePhone(phone);
     if (!normalizedPhone) {
       throw new BadRequestException(
         'Phone number must be in E.164 format.',
       );
     }
+
+    if (intent === 'register') {
+      const existing = await this.usersService.findByPhone(normalizedPhone);
+      if (existing) {
+        throw new ConflictException(
+          'This phone number is already registered. Please log in.',
+        );
+      }
+    }
+
+    this.assertPhoneOtpRateLimit(normalizedPhone);
 
     if (this.isOtpFallbackEnabled()) {
       const fallbackCode = this.getOtpFallbackCode();
@@ -127,67 +159,9 @@ export class AuthService {
       );
     }
 
-    const code = body.code?.trim();
-    if (!code) {
-      throw new BadRequestException('OTP code is required.');
-    }
+    await this.assertValidPhoneOtp(normalizedPhone, body.code);
 
-    const verifyServiceSid = this.configService.get<string>(
-      'TWILIO_VERIFY_SERVICE_SID',
-    );
-    if (this.isOtpFallbackEnabled()) {
-      const fallbackCode = this.getOtpFallbackCode();
-      if (code !== fallbackCode) {
-        throw new UnauthorizedException('Invalid OTP code.');
-      }
-      this.logger.warn(
-        `OTP fallback accepted for ${normalizedPhone}.`,
-      );
-    } else {
-      if (!verifyServiceSid) {
-        throw new BadRequestException(
-          'TWILIO_VERIFY_SERVICE_SID must be configured.',
-        );
-      }
-
-      try {
-        const verificationCheck = await this.getTwilioClient()
-          .verify.v2.services(verifyServiceSid)
-          .verificationChecks.create({
-            to: normalizedPhone,
-            code,
-          });
-
-        if (verificationCheck.status !== 'approved') {
-          throw new UnauthorizedException('Invalid OTP code.');
-        }
-      } catch (error) {
-        if (error instanceof UnauthorizedException) {
-          throw error;
-        }
-        const twilioError = error as {
-          code?: number;
-          message?: string;
-          status?: number;
-          moreInfo?: string;
-        };
-        this.logger.error(
-          `Twilio OTP verify failed for ${normalizedPhone}. code=${twilioError.code ?? 'unknown'} status=${twilioError.status ?? 'unknown'} message=${twilioError.message ?? 'unknown'}`,
-        );
-        throw new BadRequestException({
-          message: 'OTP verification failed.',
-          ...(this.isProductionEnvironment()
-            ? {}
-            : {
-                twilioCode: twilioError.code ?? null,
-                twilioStatus: twilioError.status ?? null,
-                twilioMessage: twilioError.message ?? null,
-                twilioMoreInfo: twilioError.moreInfo ?? null,
-              }),
-        });
-      }
-    }
-
+    const intent = body.intent ?? 'login';
     let user = await this.usersService.findByPhone(normalizedPhone);
     if (!user) {
       user = await this.usersService.create({
@@ -197,11 +171,19 @@ export class AuthService {
         isPhoneVerified: true,
         onboardingCompleted: false,
       });
+    } else if (intent === 'register') {
+      throw new ConflictException(
+        'This phone number is already registered. Please log in.',
+      );
     } else {
+      // Same phone always maps to one account — sign in, do not create a
+      // second identity or overwrite the registered name with a different one.
       const updates: UpdateUserDto = {
         isPhoneVerified: true,
-        name: body.name?.trim() || user.name || undefined,
       };
+      if (!user.name?.trim() && body.name?.trim()) {
+        updates.name = body.name.trim();
+      }
       if (body.role && !user.role) {
         updates.role = body.role;
       }
@@ -220,12 +202,131 @@ export class AuthService {
   }
 
   async getMe(userId: number) {
-    const user = await this.usersService.findOne(userId);
+    const user = await this.usersService.findOneWithPassword(userId);
     return { user: this.toPublicUser(user) };
   }
 
+  async loginWithPassword(phone: string, password: string) {
+    const normalizedPhone = this.normalizePhone(phone);
+    if (!normalizedPhone) {
+      throw new BadRequestException('Phone number must be in E.164 format.');
+    }
+    const plain = this.assertValidPassword(password);
+
+    const user =
+      await this.usersService.findByPhoneWithPassword(normalizedPhone);
+    const ok =
+      user &&
+      (await this.usersService.comparePassword(plain, user.password));
+    if (!user || !ok) {
+      throw new UnauthorizedException('Invalid phone number or password.');
+    }
+
+    if (user.role === UserRole.VENDOR) {
+      await this.vendorsService.ensureProfileForUser(user.id);
+    }
+
+    return this.buildAuthResponse(user);
+  }
+
+  async changePassword(
+    userId: number,
+    body: { currentPassword?: string; newPassword: string },
+  ) {
+    const user = await this.usersService.findOneWithPassword(userId);
+    const newPassword = this.assertValidPassword(body.newPassword);
+    const hasPassword = Boolean(user.password);
+
+    if (hasPassword) {
+      if (!body.currentPassword?.trim()) {
+        throw new BadRequestException('Current password is required.');
+      }
+      const matches = await this.usersService.comparePassword(
+        body.currentPassword,
+        user.password,
+      );
+      if (!matches) {
+        throw new UnauthorizedException('Current password is incorrect.');
+      }
+    }
+
+    const updated = await this.usersService.update(userId, {
+      password: newPassword,
+    });
+    return this.buildAuthResponse(
+      await this.usersService.findOneWithPassword(updated.id),
+    );
+  }
+
+  async forgotPasswordRequest(phone: string) {
+    const normalizedPhone = this.normalizePhone(phone);
+    const generic = {
+      message:
+        'If this phone number is registered, a verification code has been sent.',
+    };
+    if (!normalizedPhone) {
+      return generic;
+    }
+
+    const user = await this.usersService.findByPhone(normalizedPhone);
+    if (!user) {
+      return generic;
+    }
+
+    try {
+      await this.requestPhoneOtp(normalizedPhone, 'login');
+    } catch (error) {
+      // Still return generic message to avoid enumeration; log for ops.
+      this.logger.warn(
+        `Forgot-password OTP send failed for ${normalizedPhone}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+    return generic;
+  }
+
+  async forgotPasswordVerify(phone: string, code: string) {
+    const normalizedPhone = this.normalizePhone(phone);
+    if (!normalizedPhone) {
+      throw new BadRequestException('Phone number must be in E.164 format.');
+    }
+
+    await this.assertValidPhoneOtp(normalizedPhone, code);
+
+    const user =
+      await this.usersService.findByPhoneWithPassword(normalizedPhone);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const resetToken = this.signPasswordResetToken(user);
+    return {
+      message: 'OTP verified. Use the reset token to set a new password.',
+      resetToken,
+    };
+  }
+
+  async forgotPasswordReset(resetToken: string, newPassword: string) {
+    const plain = this.assertValidPassword(newPassword);
+    const payload = this.verifyPasswordResetToken(resetToken);
+    const user = await this.usersService.findOneWithPassword(payload.sub);
+
+    const currentStamp = user.passwordUpdatedAt
+      ? user.passwordUpdatedAt.getTime()
+      : 0;
+    if (payload.pwdAt !== currentStamp) {
+      throw new UnauthorizedException(
+        'Reset token is no longer valid. Request a new code.',
+      );
+    }
+
+    await this.usersService.update(user.id, { password: plain });
+    return { message: 'Password updated successfully. Please log in.' };
+  }
+
   async updateMe(userId: number, body: UpdateMeDto) {
-    const current = await this.usersService.findOne(userId);
+    const current = await this.usersService.findOneWithPassword(userId);
     const normalizedEmail = this.normalizeEmail(body.email);
     const normalizedPhone = this.normalizePhone(body.phone);
 
@@ -233,11 +334,18 @@ export class AuthService {
       const existingByEmail =
         await this.usersService.findByEmail(normalizedEmail);
       if (existingByEmail && existingByEmail.id !== userId) {
-        throw new ConflictException('Email already exists');
+        throw new ConflictException(
+          'This email is already registered to another account. Please use a different email.',
+        );
       }
     }
 
     if (normalizedPhone) {
+      if (this.normalizePhone(current.phone) === normalizedPhone) {
+        throw new BadRequestException(
+          'Enter a different phone number. This is already your current number.',
+        );
+      }
       const existingByPhone = await this.usersService.findByPhone(normalizedPhone);
       if (existingByPhone && existingByPhone.id !== userId) {
         throw new ConflictException('Phone number already exists');
@@ -250,6 +358,16 @@ export class AuthService {
         : body.avatarUrl === null || body.avatarUrl.trim() === ''
           ? null
           : body.avatarUrl.trim();
+
+    let firstPassword: string | undefined;
+    if (body.password !== undefined) {
+      if (current.password) {
+        throw new BadRequestException(
+          'Password already set. Use change password instead.',
+        );
+      }
+      firstPassword = this.assertValidPassword(body.password);
+    }
 
     const next = {
       ...current,
@@ -264,6 +382,7 @@ export class AuthService {
       locationCity: body.locationCity?.trim() ?? current.locationCity,
       locationState: body.locationState?.trim() ?? current.locationState,
       locationCountry: body.locationCountry?.trim() ?? current.locationCountry,
+      password: firstPassword ?? current.password,
     };
 
     const onboardingCompleted = this.isOnboardingComplete(next);
@@ -286,18 +405,29 @@ export class AuthService {
       patch.locationState = body.locationState.trim();
     if (body.locationCountry !== undefined)
       patch.locationCountry = body.locationCountry.trim();
+    if (firstPassword) {
+      patch.password = firstPassword;
+    }
     if (normalizedEmail !== undefined) {
-      patch.email = normalizedEmail;
-      patch.isEmailVerified = Boolean(normalizedEmail);
-      patch.pendingEmail = null;
-      patch.emailOtpHash = null;
-      patch.emailOtpExpiresAt = null;
+      const currentEmail = this.normalizeEmail(current.email);
+      if (normalizedEmail !== currentEmail) {
+        // First-time email during onboarding — allow set with uniqueness already checked above.
+        // Changing an existing email still requires the email OTP endpoints.
+        if (currentEmail) {
+          throw new BadRequestException(
+            'Change email via email OTP verification endpoints.',
+          );
+        }
+        patch.email = normalizedEmail;
+        patch.isEmailVerified = false;
+      }
     }
     if (normalizedAvatarUrl !== undefined) {
       patch.avatarUrl = normalizedAvatarUrl;
     }
 
-    const user = await this.usersService.update(userId, patch);
+    await this.usersService.update(userId, patch);
+    const user = await this.usersService.findOneWithPassword(userId);
 
     return this.buildAuthResponse(user);
   }
@@ -325,10 +455,17 @@ export class AuthService {
     }
 
     const user = await this.usersService.findOne(userId);
+    if (this.normalizeEmail(user.email) === normalizedEmail) {
+      throw new BadRequestException(
+        'Enter a different email address. This is already your current email.',
+      );
+    }
     const existingEmailUser =
       await this.usersService.findByEmail(normalizedEmail);
     if (existingEmailUser && existingEmailUser.id !== userId) {
-      throw new ConflictException('Email already exists');
+      throw new ConflictException(
+        'This email is already registered to another account. Please use a different email.',
+      );
     }
 
     const code = String(randomInt(100000, 1000000));
@@ -541,8 +678,13 @@ export class AuthService {
     };
   }
 
-  private buildAuthResponse(user: User) {
-    const publicUser = this.toPublicUser(user);
+  private async buildAuthResponse(user: User) {
+    // `password` is select:false — undefined means not loaded; null/string means loaded.
+    const full =
+      user.password === undefined
+        ? await this.usersService.findOneWithPassword(user.id)
+        : user;
+    const publicUser = this.toPublicUser(full);
     const payload = {
       sub: publicUser.id,
       role: publicUser.role,
@@ -553,7 +695,7 @@ export class AuthService {
 
     return {
       access_token: this.jwtService.sign(payload),
-      refresh_token: this.signRefreshToken(user.id),
+      refresh_token: this.signRefreshToken(full.id),
       user: publicUser,
     };
   }
@@ -684,6 +826,7 @@ export class AuthService {
       isEmailVerified: Boolean(user.isEmailVerified),
       isPhoneVerified: Boolean(user.isPhoneVerified),
       onboardingCompleted: Boolean(user.onboardingCompleted),
+      hasPassword: Boolean(user.password),
       locationAddress: user.locationAddress ?? null,
       locationCity: user.locationCity ?? null,
       locationState: user.locationState ?? null,
@@ -706,8 +849,121 @@ export class AuthService {
       user.email?.trim() &&
       user.name?.trim() &&
       user.locationCity?.trim() &&
-      user.locationCountry?.trim(),
+      user.locationCountry?.trim() &&
+      Boolean(user.password),
     );
+  }
+
+  private assertValidPassword(password?: string | null): string {
+    const plain = password?.trim() ?? '';
+    if (plain.length < 8 || plain.length > 72) {
+      throw new BadRequestException(
+        'Password must be between 8 and 72 characters.',
+      );
+    }
+    return plain;
+  }
+
+  private async assertValidPhoneOtp(normalizedPhone: string, code?: string) {
+    const trimmed = code?.trim();
+    if (!trimmed) {
+      throw new BadRequestException('OTP code is required.');
+    }
+
+    const verifyServiceSid = this.configService.get<string>(
+      'TWILIO_VERIFY_SERVICE_SID',
+    );
+    if (this.isOtpFallbackEnabled()) {
+      const fallbackCode = this.getOtpFallbackCode();
+      if (trimmed !== fallbackCode) {
+        throw new UnauthorizedException('Invalid OTP code.');
+      }
+      this.logger.warn(`OTP fallback accepted for ${normalizedPhone}.`);
+      return;
+    }
+
+    if (!verifyServiceSid) {
+      throw new BadRequestException(
+        'TWILIO_VERIFY_SERVICE_SID must be configured.',
+      );
+    }
+
+    try {
+      const verificationCheck = await this.getTwilioClient()
+        .verify.v2.services(verifyServiceSid)
+        .verificationChecks.create({
+          to: normalizedPhone,
+          code: trimmed,
+        });
+
+      if (verificationCheck.status !== 'approved') {
+        throw new UnauthorizedException('Invalid OTP code.');
+      }
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      const twilioError = error as {
+        code?: number;
+        message?: string;
+        status?: number;
+        moreInfo?: string;
+      };
+      this.logger.error(
+        `Twilio OTP verify failed for ${normalizedPhone}. code=${twilioError.code ?? 'unknown'} status=${twilioError.status ?? 'unknown'} message=${twilioError.message ?? 'unknown'}`,
+      );
+      throw new BadRequestException({
+        message: 'OTP verification failed.',
+        ...(this.isProductionEnvironment()
+          ? {}
+          : {
+              twilioCode: twilioError.code ?? null,
+              twilioStatus: twilioError.status ?? null,
+              twilioMessage: twilioError.message ?? null,
+              twilioMoreInfo: twilioError.moreInfo ?? null,
+            }),
+      });
+    }
+  }
+
+  private signPasswordResetToken(user: User): string {
+    const secret = this.getRefreshJwtSecret();
+    const pwdAt = user.passwordUpdatedAt
+      ? user.passwordUpdatedAt.getTime()
+      : 0;
+    return this.jwtService.sign(
+      {
+        sub: user.id,
+        typ: 'password_reset',
+        pwdAt,
+      },
+      { secret, expiresIn: '15m' },
+    );
+  }
+
+  private verifyPasswordResetToken(token: string): {
+    sub: number;
+    typ: string;
+    pwdAt: number;
+  } {
+    try {
+      const payload = this.jwtService.verify<{
+        sub: number;
+        typ: string;
+        pwdAt: number;
+      }>(token, { secret: this.getRefreshJwtSecret() });
+      if (payload.typ !== 'password_reset' || !payload.sub) {
+        throw new UnauthorizedException('Invalid reset token.');
+      }
+      return payload;
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      throw new UnauthorizedException(
+        'Reset token is invalid or expired. Request a new code.',
+      );
+    }
   }
 
   private async sendEmailOtp(email: string, code: string) {

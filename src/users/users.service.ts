@@ -45,6 +45,7 @@ export class UsersService {
       email,
       phone,
       password,
+      passwordUpdatedAt: password ? new Date() : null,
       pendingEmail,
       role,
       defaultRole: role,
@@ -119,6 +120,46 @@ export class UsersService {
     return await this.usersRepository.findOneBy({ phone: normalizedPhone });
   }
 
+  /** Includes the select:false `password` column for login / change / reset. */
+  async findByPhoneWithPassword(phone: string): Promise<User | null> {
+    const normalizedPhone = this.normalizePhone(phone);
+    if (!normalizedPhone) {
+      return null;
+    }
+    return await this.usersRepository
+      .createQueryBuilder('user')
+      .addSelect('user.password')
+      .where('user.phone = :phone', { phone: normalizedPhone })
+      .getOne();
+  }
+
+  async findOneWithPassword(id: number): Promise<User> {
+    const user = await this.usersRepository
+      .createQueryBuilder('user')
+      .addSelect('user.password')
+      .where('user.id = :id', { id })
+      .getOne();
+    if (!user) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+    return user;
+  }
+
+  async hasPassword(id: number): Promise<boolean> {
+    const user = await this.findOneWithPassword(id);
+    return Boolean(user.password);
+  }
+
+  async comparePassword(
+    plain: string,
+    hash: string | null | undefined,
+  ): Promise<boolean> {
+    if (!hash) {
+      return false;
+    }
+    return bcrypt.compare(plain, hash);
+  }
+
   async findOneWithEmailOtp(id: number): Promise<User | null> {
     return await this.usersRepository.findOne({
       where: { id },
@@ -168,6 +209,10 @@ export class UsersService {
       }
     }
 
+    const nextPassword = updateUserDto.password
+      ? await this.hashPassword(updateUserDto.password)
+      : undefined;
+
     Object.assign(user, {
       ...updateUserDto,
       ...(email !== undefined ? { email } : {}),
@@ -175,8 +220,8 @@ export class UsersService {
       ...(updateUserDto.pendingEmail !== undefined
         ? { pendingEmail: this.normalizeEmail(updateUserDto.pendingEmail) }
         : {}),
-      ...(updateUserDto.password
-        ? { password: await this.hashPassword(updateUserDto.password) }
+      ...(nextPassword
+        ? { password: nextPassword, passwordUpdatedAt: new Date() }
         : {}),
     });
 

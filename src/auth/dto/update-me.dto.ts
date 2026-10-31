@@ -1,4 +1,12 @@
-import { IsEmail, IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
+import {
+  IsEmail,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { UserRole } from 'src/users/entities/user.entity';
 
 export class UpdateMeDto {
@@ -13,6 +21,13 @@ export class UpdateMeDto {
   @IsString()
   @IsOptional()
   name?: string;
+
+  /** First-time password during onboarding only (rejected if password already set). */
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  @MaxLength(72)
+  password?: string;
 
   @IsOptional()
   @IsString()

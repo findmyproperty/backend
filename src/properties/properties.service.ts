@@ -9,7 +9,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository, Brackets, SelectQueryBuilder, QueryDeepPartialEntity } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { MailService } from '../mail/mail.service';
-import { CreatePropertyDto, PropertyStatus, ListingType } from './dto/create-property.dto';
+import {
+  CreatePropertyDto,
+  PropertyStatus,
+  ListingType,
+} from './dto/create-property.dto';
+import { SavePropertyDraftDto } from './dto/save-property-draft.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { ApprovePropertyDto } from './dto/approve-property.dto';
 import { RejectPropertyDto } from './dto/reject-property.dto';
@@ -159,6 +164,100 @@ export class PropertiesService {
     }
 
     return saved;
+  }
+
+  /** Apply draft-safe defaults for non-nullable DB columns. */
+  private normalizeDraftFields(
+    dto: SavePropertyDraftDto,
+  ): CreatePropertyDto {
+    const title = dto.title?.trim() || 'Untitled draft';
+    const address = dto.address?.trim() || '-';
+    const locality = dto.locality?.trim() || '-';
+    const city = dto.city?.trim() || '-';
+    const country = dto.country?.trim() || '-';
+    const propertyType = dto.propertyType?.trim() || 'Draft';
+    const currency = dto.currency?.trim() || 'INR';
+    const listingType = dto.listingType ?? ListingType.RENT;
+    const price =
+      dto.price != null && Number.isFinite(Number(dto.price))
+        ? Number(dto.price)
+        : 0;
+    const area =
+      dto.area != null && Number.isFinite(Number(dto.area))
+        ? Number(dto.area)
+        : 0;
+
+    return {
+      title,
+      description: dto.description,
+      price,
+      currency,
+      listingType,
+      propertySector: dto.propertySector ?? null,
+      postingType: dto.postingType ?? null,
+      details: dto.details ?? null,
+      propertyType,
+      furnishing: dto.furnishing,
+      address,
+      locality,
+      city,
+      state: dto.state,
+      country,
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+      bedrooms: dto.bedrooms,
+      bathrooms: dto.bathrooms,
+      area,
+      yearBuilt: dto.yearBuilt,
+      amenities: dto.amenities,
+      videoUrl: dto.videoUrl,
+      propertyImages: dto.propertyImages,
+      thumbnailUrl: dto.thumbnailUrl,
+      floorPlans: dto.floorPlans,
+      status: PropertyStatus.DRAFT,
+    };
+  }
+
+  async createDraft(
+    dto: SavePropertyDraftDto,
+    userId: number,
+    creatorRole?: string,
+  ): Promise<Property> {
+    const normalized = this.normalizeDraftFields(dto);
+    const property = this.propertyRepository.create({
+      ...normalized,
+      createdBy: userId,
+      assignedAgentId: creatorRole === 'agent' ? userId : null,
+      status: PropertyStatus.DRAFT,
+      approvedAt: null,
+    });
+    return this.propertyRepository.save(property);
+  }
+
+  async updateDraft(
+    id: number,
+    dto: SavePropertyDraftDto,
+    userId: number,
+  ): Promise<Property> {
+    const property = await this.findOne(id);
+    if (property.createdBy !== userId) {
+      throw new ForbiddenException(
+        'You can only update drafts you created',
+      );
+    }
+    if (property.status !== PropertyStatus.DRAFT) {
+      throw new BadRequestException(
+        'Only draft listings can be updated via the draft endpoint',
+      );
+    }
+
+    const normalized = this.normalizeDraftFields(dto);
+    Object.assign(property, {
+      ...normalized,
+      status: PropertyStatus.DRAFT,
+      approvedAt: null,
+    });
+    return this.propertyRepository.save(property);
   }
 
   async approve(id: number, dto: ApprovePropertyDto = {}): Promise<Property> {
@@ -519,6 +618,11 @@ Open leads: ${leadsUrl}`,
 
     if ('status' in query && query.status) {
       qb.andWhere('p.status = :status', { status: query.status });
+    } else {
+      // Approval queues / "all" tabs: drafts stay private to the owner.
+      qb.andWhere('p.status != :draftStatus', {
+        draftStatus: PropertyStatus.DRAFT,
+      });
     }
 
     const city = query.city?.trim();
@@ -790,13 +894,10 @@ Open leads: ${leadsUrl}`,
       );
     }
 
-    if (
-      !isAdmin &&
-      previousStatus !== PropertyStatus.PENDING
-    ) {
-      this.notifyAdmin(updatedProperty, { isResubmission: true }).catch(
-        (err) =>
-          console.error('Failed to notify admin about listing resubmission', err),
+    if (!isAdmin && previousStatus !== PropertyStatus.PENDING) {
+      const isResubmission = previousStatus !== PropertyStatus.DRAFT;
+      this.notifyAdmin(updatedProperty, { isResubmission }).catch((err) =>
+        console.error('Failed to notify admin about listing submission', err),
       );
     }
 

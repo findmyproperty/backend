@@ -17,6 +17,13 @@ import { UpdateMeDto } from './dto/update-me.dto';
 import { RequestPhoneOtpDto } from './dto/request-phone-otp.dto';
 import { VerifyPhoneOtpDto } from './dto/verify-phone-otp.dto';
 import { AdminLoginAsDto } from './dto/admin-login-as.dto';
+import { LoginPasswordDto } from './dto/login-password.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import {
+  ForgotPasswordRequestDto,
+  ForgotPasswordResetDto,
+  ForgotPasswordVerifyDto,
+} from './dto/forgot-password.dto';
 
 import type { Request, Response } from 'express';
 
@@ -41,7 +48,7 @@ export class AuthController {
 
   @Post('phone-otp/request')
   async requestPhoneOtp(@Body() body: RequestPhoneOtpDto) {
-    return this.authService.requestPhoneOtp(body.phone);
+    return this.authService.requestPhoneOtp(body.phone, body.intent);
   }
 
   @Post('phone-otp/verify')
@@ -61,6 +68,56 @@ export class AuthController {
       this.authService.getRoleCookieOptions(),
     );
     return { access_token: result.access_token, user: result.user };
+  }
+
+  @Post('login')
+  async loginWithPassword(
+    @Body() body: LoginPasswordDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.loginWithPassword(
+      body.phone,
+      body.password,
+    );
+    res.cookie(
+      REFRESH_TOKEN_COOKIE,
+      result.refresh_token,
+      this.authService.getRefreshCookieOptions(),
+    );
+    res.cookie(
+      ROLE_COOKIE,
+      result.user.role,
+      this.authService.getRoleCookieOptions(),
+    );
+    return { access_token: result.access_token, user: result.user };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('password/change')
+  async changePassword(
+    @Req() req: RequestWithUser,
+    @Body() body: ChangePasswordDto,
+  ) {
+    const result = await this.authService.changePassword(req.user!.userId, body);
+    return { access_token: result.access_token, user: result.user };
+  }
+
+  @Post('password/forgot/request')
+  async forgotPasswordRequest(@Body() body: ForgotPasswordRequestDto) {
+    return this.authService.forgotPasswordRequest(body.phone);
+  }
+
+  @Post('password/forgot/verify')
+  async forgotPasswordVerify(@Body() body: ForgotPasswordVerifyDto) {
+    return this.authService.forgotPasswordVerify(body.phone, body.code);
+  }
+
+  @Post('password/forgot/reset')
+  async forgotPasswordReset(@Body() body: ForgotPasswordResetDto) {
+    return this.authService.forgotPasswordReset(
+      body.resetToken,
+      body.newPassword,
+    );
   }
 
   /** New access token using HTTP-only `refresh_token` cookie. */
@@ -112,6 +169,32 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const result = await this.authService.updateMe(req.user!.userId, body);
+    return { access_token: result.access_token, user: result.user };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('email-otp/request')
+  async requestEmailOtp(
+    @Req() req: RequestWithUser,
+    @Body() body: { email?: string },
+  ) {
+    return this.authService.requestEmailOtp(
+      req.user!.userId,
+      body.email ?? '',
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('email-otp/verify')
+  async verifyEmailOtp(
+    @Req() req: RequestWithUser,
+    @Body() body: { email?: string; code?: string },
+  ) {
+    const result = await this.authService.verifyEmailOtp(
+      req.user!.userId,
+      body.email ?? '',
+      body.code ?? '',
+    );
     return { access_token: result.access_token, user: result.user };
   }
 

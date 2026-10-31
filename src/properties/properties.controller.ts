@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { PropertiesService } from './properties.service';
 import { CreatePropertyDto, PropertyStatus } from './dto/create-property.dto';
+import { SavePropertyDraftDto } from './dto/save-property-draft.dto';
 import { assertPostingContract } from './property-posting';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { ApprovePropertyDto } from './dto/approve-property.dto';
@@ -59,6 +60,19 @@ export class PropertiesController {
       userId,
       req.user?.role,
     );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('draft')
+  createDraft(
+    @Body() dto: SavePropertyDraftDto,
+    @Req() req: RequestWithUser,
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ForbiddenException('User not authenticated properly');
+    }
+    return this.propertiesService.createDraft(dto, userId, req.user?.role);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -154,6 +168,20 @@ export class PropertiesController {
       throw new ForbiddenException('Only admins can reject properties');
     }
     return this.propertiesService.reject(id, body);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/draft')
+  updateDraft(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SavePropertyDraftDto,
+    @Req() req: RequestWithUser,
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ForbiddenException('User not authenticated properly');
+    }
+    return this.propertiesService.updateDraft(id, dto, userId);
   }
 
   @UseGuards(JwtAuthGuard)

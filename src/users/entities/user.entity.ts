@@ -27,6 +27,10 @@ export class User {
   @Column({ type: 'varchar', nullable: true, select: false })
   password: string | null;
 
+  /** Bumped when password is set/changed; used to invalidate password-reset JWTs. */
+  @Column({ type: 'timestamp', nullable: true, name: 'password_updated_at' })
+  passwordUpdatedAt: Date | null;
+
   @Column({ type: 'varchar', unique: true, nullable: true })
   phone: string | null;
 

@@ -223,6 +223,15 @@ function validateCommercial(
   if (!text(details.contactPreference)) {
     miss('details.contactPreference', 'Contact preference is required');
   }
+  if (
+    text(details.contactAvailability) === 'custom' &&
+    text(details.contactAvailabilityCustom).length < 2
+  ) {
+    miss(
+      'details.contactAvailabilityCustom',
+      'Please describe your custom availability',
+    );
+  }
   const description = text(input.description);
   if (description.length < 50 || description.length > 3000) {
     miss('description', 'Description must be between 50 and 3000 characters');
@@ -261,14 +270,32 @@ function validateCommercial(
   }
 }
 
+function isValidOptionalIndianMobile(raw: string): boolean {
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return true;
+  const national =
+    digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : digits;
+  return /^[6-9]\d{9}$/.test(national);
+}
+
 function apartmentShape(details: Details, miss: (path: string, message: string) => void, resale: boolean) {
   const kind = text(details.apartmentType);
   const allowed = resale
-    ? ['apartment', 'independent_house', 'gated_villa', 'standalone_building']
-    : ['apartment', 'independent_house', 'gated_villa'];
+    ? ['apartment', 'independent_house', 'gated_villa', 'standalone_building', 'other']
+    : ['apartment', 'independent_house', 'gated_villa', 'other'];
   if (!allowed.includes(kind)) miss('details.apartmentType', 'Apartment type is required');
+  if (kind === 'other') {
+    const custom = text(details.apartmentTypeOther).slice(0, 60);
+    if (custom.length < 2) {
+      miss(
+        'details.apartmentTypeOther',
+        'Please specify the apartment type (2–60 characters)',
+      );
+    }
+  }
   const hideFloor = kind === 'independent_house' || kind === 'gated_villa';
-  const showName = kind === 'apartment' || kind === 'gated_villa';
+  const showName =
+    kind === 'apartment' || kind === 'gated_villa' || kind === 'other';
   const showNumberOfFloors = kind === 'independent_house' || kind === 'gated_villa';
   if (!hideFloor && kind) {
     if (!text(details.floor)) miss('details.floor', 'Floor is required');
@@ -313,6 +340,12 @@ function validateResidentialRent(
   if (!yesNo(details.gym)) miss('details.gym', 'Gym is required');
   if (!yesNo(details.nonVegAllowed)) miss('details.nonVegAllowed', 'Non-veg allowed is required');
   if (!yesNo(details.gatedSecurity)) miss('details.gatedSecurity', 'Gated security is required');
+  if (
+    text(details.secondaryNumber) &&
+    !isValidOptionalIndianMobile(text(details.secondaryNumber))
+  ) {
+    miss('details.secondaryNumber', 'Enter a valid 10-digit Indian mobile number');
+  }
 }
 
 function validateResale(
@@ -342,6 +375,12 @@ function validateResale(
   if (!text(details.propertyTax)) miss('details.propertyTax', 'Property tax is required');
   if (!text(details.occupancyCertificate)) {
     miss('details.occupancyCertificate', 'Occupancy certificate is required');
+  }
+  if (
+    text(details.secondaryNumber) &&
+    !isValidOptionalIndianMobile(text(details.secondaryNumber))
+  ) {
+    miss('details.secondaryNumber', 'Enter a valid 10-digit Indian mobile number');
   }
 }
 
