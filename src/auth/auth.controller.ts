@@ -235,9 +235,9 @@ export class AuthController {
       result.user.role,
       this.authService.getRoleCookieOptions(),
     );
+    // Refresh token is HttpOnly cookie only — do not put it in the JSON body.
     return {
       access_token: result.access_token,
-      refresh_token: result.refresh_token,
       user: result.user,
     };
   }
