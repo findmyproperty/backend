@@ -704,8 +704,8 @@ export class AuthService {
     const secret = this.getRefreshJwtSecret();
     const expiresIn =
       parseDurationToSeconds(
-        this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d',
-      ) ?? 7 * 24 * 60 * 60;
+        this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '30d',
+      ) ?? 30 * 24 * 60 * 60;
     return this.jwtService.sign(
       { sub: userId, typ: 'refresh' },
       { secret, expiresIn },
@@ -725,7 +725,11 @@ export class AuthService {
     if (fromEnv != null && fromEnv !== '' && Number.isFinite(Number(fromEnv))) {
       return Number(fromEnv);
     }
-    return 7 * 24 * 60 * 60 * 1000;
+    const seconds =
+      parseDurationToSeconds(
+        this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '30d',
+      ) ?? 30 * 24 * 60 * 60;
+    return seconds * 1000;
   }
 
   generateVerificationToken(userId: number, email: string): string {
