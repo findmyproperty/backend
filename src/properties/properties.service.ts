@@ -864,8 +864,17 @@ Open leads: ${leadsUrl}`,
     }
 
     const updatedProperty = Object.assign(property, dto);
+    // Non-admins: any full PATCH re-enters review (Pending).
+    // Admins: skip Pending — Draft/Rejected submit publishes as Approved (same as create).
+    // Explicit dto.status from admin is preserved via Object.assign above.
     if (!isAdmin) {
       updatedProperty.status = PropertyStatus.PENDING;
+    } else if (
+      dto.status === undefined &&
+      (previousStatus === PropertyStatus.DRAFT ||
+        previousStatus === PropertyStatus.REJECTED)
+    ) {
+      updatedProperty.status = PropertyStatus.APPROVED;
     }
 
     if (updatedProperty.status === PropertyStatus.APPROVED) {
