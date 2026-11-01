@@ -206,20 +206,30 @@ export class AuthService {
     return { user: this.toPublicUser(user) };
   }
 
-  async loginWithPassword(phone: string, password: string) {
-    const normalizedPhone = this.normalizePhone(phone);
-    if (!normalizedPhone) {
-      throw new BadRequestException('Phone number must be in E.164 format.');
-    }
-    const plain = this.assertValidPassword(password);
+  async loginWithPassword(input: {
+    phone?: string;
+    email?: string;
+    password: string;
+  }) {
+    const plain = this.assertValidPassword(input.password);
+    const normalizedEmail = this.normalizeEmail(input.email);
+    const normalizedPhone = this.normalizePhone(input.phone);
 
-    const user =
-      await this.usersService.findByPhoneWithPassword(normalizedPhone);
+    if (!normalizedEmail && !normalizedPhone) {
+      throw new BadRequestException(
+        'Enter a valid email address or phone number.',
+      );
+    }
+
+    const user = normalizedEmail
+      ? await this.usersService.findByEmail(normalizedEmail)
+      : await this.usersService.findByPhoneWithPassword(normalizedPhone!);
+
     const ok =
       user &&
       (await this.usersService.comparePassword(plain, user.password));
     if (!user || !ok) {
-      throw new UnauthorizedException('Invalid phone number or password.');
+      throw new UnauthorizedException('Invalid email/phone or password.');
     }
 
     if (user.role === UserRole.VENDOR) {

@@ -75,10 +75,11 @@ export class AuthController {
     @Body() body: LoginPasswordDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.authService.loginWithPassword(
-      body.phone,
-      body.password,
-    );
+    const result = await this.authService.loginWithPassword({
+      phone: body.phone,
+      email: body.email,
+      password: body.password,
+    });
     res.cookie(
       REFRESH_TOKEN_COOKIE,
       result.refresh_token,
